@@ -8,6 +8,7 @@ It is designed with a decoupled architecture to maintain strict security across 
 - **Intelligent Parsing:** Bypasses complex website structures and extracts useful text data utilizing `BeautifulSoup`.
 - **AI Synthesis:** Leverages generative AI models to condense raw text into snappy promotional copy.
 - **Link QR Codes:** Automatically generates scannable QR codes matching the compiled URL using `qrcode.js`.
+- **Advanced Security:** Hardened backend API incorporating native Rate Limiting (DoS prevention) and custom DNS resolution filters to defend against Server-Side Request Forgery (`SSRF`) attacks.
 - **Secure Architecture:** Built to isolate sensitive backend API keys from client-side execution, utilizing a robust CORS-enabled architecture to host the interface via typical static sites.
 
 ## Tech Stack
