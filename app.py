@@ -29,16 +29,23 @@ def index():
 def generate():
     data = request.json
     url = data.get("url")
+    user_raw_text = data.get("raw_text") # Can be effectively sent to bypass scraping if website blocks it
     api_key = os.getenv("NVIDIA_API_KEY")
     
-    if not url:
-        return jsonify({"error": "URL is required"}), 400
+    if not url and not user_raw_text:
+        return jsonify({"error": "URL or Raw Text is required"}), 400
     if not api_key:
         return jsonify({"error": "Backend configuration error: API Key missing"}), 500
         
     try:
-        raw_text = scrape_website_text(url)
-        content = generate_internship_content(raw_text, url, api_key)
+        # 1. Provide raw_text directly if user bypassed scraping, otherwise scrape the URL
+        if user_raw_text and user_raw_text.strip():
+            raw_text = user_raw_text
+        else:
+            raw_text = scrape_website_text(url)
+            
+        # 2. Complete Generation passing url or a fallback "No URL Provided"
+        content = generate_internship_content(raw_text, url or "No URL Provided", api_key)
         
         # Optionally, we can attempt to parse the content into Poster and WhatsApp Caption
         # We will let the frontend handle the display. It might be easier to just split by "TASK 2: WHATSAPP CAPTION" or similar if we want.

@@ -28,6 +28,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     });
 
+    // Input Mode Toggle
+    const inputModeRadios = document.querySelectorAll('input[name="inputMode"]');
+    const modeUrlSection = document.getElementById('mode-url-section');
+    const modeTextSection = document.getElementById('mode-text-section');
+    const urlInput = document.getElementById('url');
+    const rawTextInput = document.getElementById('raw-text');
+
+    inputModeRadios.forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            if(e.target.value === 'url') {
+                modeUrlSection.classList.remove('hidden');
+                modeTextSection.classList.add('hidden');
+                urlInput.required = true;
+                rawTextInput.required = false;
+            } else {
+                modeUrlSection.classList.add('hidden');
+                modeTextSection.classList.remove('hidden');
+                urlInput.required = false;
+                rawTextInput.required = true;
+            }
+        });
+    });
+
     // Fake status messages
     const statuses = [
         ">_ Analyzing target URL...",
@@ -101,7 +124,17 @@ document.addEventListener('DOMContentLoaded', () => {
         
         startStatusSimulation();
 
-        const url = document.getElementById('url').value;
+        const inputMode = document.querySelector('input[name="inputMode"]:checked').value;
+        let payload = {};
+
+        if (inputMode === 'url') {
+            payload = { url: document.getElementById('url').value };
+        } else {
+            payload = { 
+                url: document.getElementById('optional-url').value || "No URL Provided",
+                raw_text: document.getElementById('raw-text').value
+            };
+        }
 
         try {
             const isLocalhost = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
@@ -111,7 +144,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(API_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url })
+                body: JSON.stringify(payload)
             });
 
             const data = await response.json();
@@ -151,7 +184,7 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Generate new QR code
             new QRCode(document.getElementById("qrcode"), {
-                text: url,
+                text: payload.url && payload.url !== "No URL Provided" ? payload.url : "https://example.com/no-url-provided",
                 width: 128,
                 height: 128,
                 colorDark : "#000000",

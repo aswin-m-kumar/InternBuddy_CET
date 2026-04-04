@@ -29,9 +29,34 @@
             
             <div id="tab-home" class="tab-content active">
                 <form id="agent-form">
-                    <div class="input-group">
-                        <label for="url">Target URL</label>
-                        <input type="url" id="url" placeholder="https://..." required autocomplete="off">
+                    <div class="input-mode-toggle">
+                        <label class="radio-label">
+                            <input type="radio" name="inputMode" value="url" checked>
+                            <span><i class="icon">🔗</i> Scrape URL</span>
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="inputMode" value="text">
+                            <span><i class="icon">📝</i> Paste Text</span>
+                        </label>
+                    </div>
+
+                    <div id="mode-url-section" class="input-section">
+                        <div class="input-group">
+                            <label for="url">Target URL</label>
+                            <input type="url" id="url" placeholder="https://..." required autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div id="mode-text-section" class="input-section hidden">
+                        <div class="input-group">
+                            <label for="raw-text">Raw Internship Content</label>
+                            <textarea id="raw-text" placeholder="Paste all internship details, eligibility, rules, and information here..." rows="6"></textarea>
+                        </div>
+                        <div class="input-group">
+                            <label for="optional-url">Application URL <span class="optional-tag">(Optional)</span></label>
+                            <input type="url" id="optional-url" placeholder="https://..." autocomplete="off">
+                            <small class="hint">Added to the bottom of the generated content.</small>
+                        </div>
                     </div>
                     <button type="submit" id="submit-btn" class="primary-btn">
                         <span class="btn-text">Generate Content</span>
