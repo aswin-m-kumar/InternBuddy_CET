@@ -1,18 +1,25 @@
+import os
+import logging
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from internship_agent import scrape_website_text, generate_internship_content
-import os
-import logging
 from dotenv import load_dotenv
+
+from internship_agent import scrape_website_text, generate_internship_content
 
 load_dotenv()
 
-app = Flask(__name__)
-CORS(app) # Enable Cross-Origin Resource Sharing so GitHub Pages can request this backend
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-# Setup rate limiting to prevent abuse
+app = Flask(__name__)
+CORS(app)
+
 limiter = Limiter(
     get_remote_address,
     app=app,
@@ -63,8 +70,7 @@ def generate():
             "error": str(e)
         }), 400
     except Exception as e:
-        # Log the real error server-side for debugging, but never expose it to the client.
-        logging.exception("Unhandled error during content generation")
+        logger.exception("Unhandled error during content generation")
         return jsonify({
             "success": False,
             "error": "An internal server error occurred. Please try again later."

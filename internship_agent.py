@@ -1,11 +1,13 @@
-import requests
-import cloudscraper
-import urllib3
-from bs4 import BeautifulSoup
-from openai import OpenAI
 import socket
 import ipaddress
+import logging
+import urllib3
 from urllib.parse import urlparse
+
+import requests
+import cloudscraper
+from bs4 import BeautifulSoup
+from openai import OpenAI
 from requests.exceptions import (
     SSLError as RequestsSSLError,
     ConnectionError as RequestsConnectionError,
@@ -14,8 +16,17 @@ from requests.exceptions import (
     HTTPError
 )
 
+logger = logging.getLogger(__name__)
+
 # Suppress SSL warnings for verify=False fallback
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Constants
+MAX_URL_LENGTH = 2048
+MAX_TEXT_LENGTH = 20000
+MIN_TEXT_LENGTH = 100
+REQUEST_TIMEOUT = 15
+ALLOWED_SCHEMES = ("http", "https")
 
 
 def scrape_website_text(url):
@@ -23,28 +34,32 @@ def scrape_website_text(url):
 
     # 1. Validate URL scheme
     parsed_url = urlparse(url)
-    if parsed_url.scheme not in ("http", "https"):
+    if parsed_url.scheme not in ALLOWED_SCHEMES:
         raise ValueError("Invalid URL scheme. Only HTTP and HTTPS are allowed.")
 
-    if not parsed_url.hostname:
+    hostname = parsed_url.hostname
+    if not hostname:
         raise ValueError("Invalid URL: could not extract hostname.")
 
     # 2. URL length guard
-    if len(url) > 2048:
+    if len(url) > MAX_URL_LENGTH:
         raise ValueError("URL is too long. Please provide a shorter URL.")
 
-    # 3. SSRF: Resolve DNS once and validate IP
-    hostname = parsed_url.hostname
+    # 3. SSRF: Resolve DNS and validate IP (handles both IPv4 and IPv6)
     try:
-        ip = socket.gethostbyname(hostname)
+        addr_info = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        if not addr_info:
+            raise ValueError(f"Could not resolve hostname '{hostname}'.")
+        # Check the first resolved address
+        family = addr_info[0][0]
+        ip = addr_info[0][4][0]
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+            raise ValueError("Requests to internal/private network addresses are forbidden.")
     except socket.gaierror:
         raise ValueError(f"Could not resolve hostname '{hostname}'. Check the URL and try again.")
 
-    addr = ipaddress.ip_address(ip)
-    if addr.is_private or addr.is_loopback or addr.is_link_local:
-        raise ValueError("Requests to internal/private network addresses are forbidden.")
-
-    print(f"Scraping data from: {url} ...")
+    logger.info("Scraping data from: %s", url)
 
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
@@ -59,12 +74,11 @@ def scrape_website_text(url):
 
     # 4. Attempt standard request
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+        response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
     except RequestsSSLError:
-        # Common with Indian govt sites (NIC certs not in Python's default store)
-        print("SSL verification failed. Retrying without cert verification...")
+        logger.warning("SSL verification failed. Retrying without cert verification...")
         try:
-            response = requests.get(url, headers=headers, timeout=15, verify=False)
+            response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT, verify=False)
         except RequestsSSLError as e:
             raise ValueError(f"SSL error and fallback also failed: {e}")
     except RequestsTimeout:
@@ -77,11 +91,11 @@ def scrape_website_text(url):
         raise ValueError(f"Unexpected error while fetching URL: {str(e)}")
 
     # 5. Handle 403 with cloudscraper fallback
-    if response.status_code == 403:
-        print("Standard request blocked (403). Retrying with cloudscraper...")
+    if response and response.status_code == 403:
+        logger.warning("Standard request blocked (403). Retrying with cloudscraper...")
         try:
             scraper = cloudscraper.create_scraper()
-            response = scraper.get(url, timeout=15)
+            response = scraper.get(url, timeout=REQUEST_TIMEOUT)
             if response.status_code == 403:
                 raise ValueError("Access denied by the website. It has strong anti-bot protection. Try a different URL.")
         except ValueError:
@@ -123,18 +137,22 @@ def scrape_website_text(url):
 
     text = soup.get_text(separator=' ', strip=True)
 
-    if not text or len(text.strip()) < 100:
+    if not text or len(text.strip()) < MIN_TEXT_LENGTH:
         raise ValueError("The page returned very little readable text. It may be JavaScript-rendered or behind a login wall.")
 
-    return text[:20000]
+    # Truncate early to save memory and API costs
+    return text[:MAX_TEXT_LENGTH]
 
 
 def generate_internship_content(website_text, url, api_key):
     """Passes the scraped text to the AI to format the output."""
-    print("Agent is analyzing the website text and generating content...")
+    logger.info("Analyzing website text and generating content...")
 
     if not api_key:
         raise ValueError("NVIDIA API Key is required to generate content.")
+
+    if not website_text or len(website_text.strip()) < MIN_TEXT_LENGTH:
+        raise ValueError("Input text is too short for AI processing.")
 
     try:
         client = OpenAI(
@@ -236,21 +254,3 @@ def generate_internship_content(website_text, url, api_key):
         raise ValueError("AI returned an empty response. Please try again.")
 
     return response.choices[0].message.content
-
-
-# --- MAIN EXECUTION ---
-if __name__ == "__main__":
-    target_url = "https://www.iitbbs.ac.in/index.php/home/academics/internship-programme/"
-
-    try:
-        raw_text = scrape_website_text(target_url)
-        api_key = input("Enter your NVIDIA API Key: ").strip()
-        final_output = generate_internship_content(raw_text, target_url, api_key)
-
-        print("\n" + "="*50)
-        print("🎉 GENERATED CONTENT")
-        print("="*50 + "\n")
-        print(final_output)
-
-    except Exception as e:
-        print(f"An error occurred: {e}")
