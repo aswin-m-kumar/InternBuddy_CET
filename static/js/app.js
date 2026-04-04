@@ -8,8 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loader = submitBtn.querySelector('.loader');
     
     const resultsSection = document.getElementById('results');
-    const posterText = document.getElementById('poster-text');
-    const whatsappText = document.getElementById('whatsapp-text');
+    const outputText = document.getElementById('output-text');
     const errorCard = document.getElementById('error-message');
     const statusText = document.getElementById('status-text');
 
@@ -52,7 +51,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 statusText.innerText = ">_ Awaiting final response...";
             }
-        }, 1200 + Math.random() * 800); // Random delay
+        }, 1200 + Math.random() * 800);
     }
 
     function stopStatusSimulation() {
@@ -66,7 +65,6 @@ document.addEventListener('DOMContentLoaded', () => {
         element.classList.add('typing-cursor');
         for (let i = 0; i < text.length; i++) {
             element.textContent += text.charAt(i);
-            // Randomize typing speed slightly for realism (looks like real typing)
             const randomDelay = speed + (Math.random() * 15);
             await new Promise(r => setTimeout(r, randomDelay));
         }
@@ -106,12 +104,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const url = document.getElementById('url').value;
 
         try {
-            // Point directly to the backend depending on where it's hosted
             const isLocalhost = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
-            
-            // TODO: Once you deploy to Render, replace the text inside the quotes below!
             const PROD_BACKEND_URL = "https://intern-agent.onrender.com"; 
-            
             const API_ENDPOINT = isLocalhost ? '/api/generate' : `${PROD_BACKEND_URL}/api/generate`;
 
             const response = await fetch(API_ENDPOINT, {
@@ -138,20 +132,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 colors: ['#3b82f6', '#8b5cf6', '#10b981']
             });
 
-            // Parse response naive approach based on prompt text
-            const rawContent = data.content;
-            
-            let posterContent = rawContent;
-            let whatsappContent = "";
-
-            if(rawContent.includes("TASK 2: WHATSAPP CAPTION")) {
-                const parts = rawContent.split("TASK 2: WHATSAPP CAPTION");
-                posterContent = parts[0].replace("TASK 1: POSTER CONTENT", "").trim();
-                whatsappContent = parts[1].trim();
-            } else {
-                posterContent = rawContent;
-            }
-
             // Clear previous QR code
             document.getElementById('qrcode').innerHTML = "";
             
@@ -165,17 +145,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 correctLevel : QRCode.CorrectLevel.H
             });
 
-            // Reveal cards and trigger typewriter
+            // Reveal card and trigger typewriter
             resultsSection.classList.remove('hidden');
-            posterText.textContent = '';
-            whatsappText.textContent = '';
+            outputText.textContent = '';
             
-            // Allow CSS transition to process before typing
             setTimeout(() => {
-                Promise.all([
-                    typeWriter(posterText, posterContent, 5),
-                    typeWriter(whatsappText, whatsappContent || "Information not provided by AI.", 5)
-                ]);
+                typeWriter(outputText, data.content.trim(), 5);
             }, 300);
 
         } catch (error) {

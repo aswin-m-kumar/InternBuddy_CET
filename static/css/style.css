@@ -195,6 +195,10 @@ button.primary-btn:disabled {
     #results { grid-template-columns: 1fr 1fr; }
 }
 
+.result-card.full-width {
+    grid-column: 1 / -1;
+}
+
 .result-card {
     background: #1f2937;
     border: 1px solid #374151;
