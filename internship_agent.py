@@ -103,17 +103,26 @@ def generate_internship_content(website_text, url, api_key):
     Internship Cell CET
     """
 
-    response = client.chat.completions.create(
-        model="meta/llama-3.1-70b-instruct",
-        messages=[
-            {"role": "system", "content": instruction_prompt},
-            # 4. Mitigate Prompt Injection: Wrap the untrusted text in strict delimiters
-            {"role": "user", "content": f"Here is the raw website text to analyze:\n\n<SCRAPED_TEXT>\n{website_text}\n</SCRAPED_TEXT>"}
-        ],
-        max_tokens=800,
-        temperature=0.2, # Low temperature for factual accuracy
-        top_p=1
-    )
+    try:
+        response = client.chat.completions.create(
+            model="meta/llama-3.1-70b-instruct",
+            messages=[
+                {"role": "system", "content": instruction_prompt},
+                # 4. Mitigate Prompt Injection: Wrap the untrusted text in strict delimiters
+                {"role": "user", "content": f"Here is the raw website text to analyze:\n\n<SCRAPED_TEXT>\n{website_text}\n</SCRAPED_TEXT>"}
+            ],
+            max_tokens=800,
+            temperature=0.2, # Low temperature for factual accuracy
+            top_p=1
+        )
+    except Exception as api_err:
+        err_msg = str(api_err).lower()
+        if "429" in str(api_err) or "rate limit" in err_msg or "quota" in err_msg:
+            raise ValueError("API rate limit reached or token quota exhausted. Please try again later.")
+        elif "401" in str(api_err) or "unauthorized" in err_msg or "authentication" in err_msg:
+            raise ValueError("API key is invalid or has expired. Please contact the administrator.")
+        else:
+            raise
     
     return response.choices[0].message.content
 
