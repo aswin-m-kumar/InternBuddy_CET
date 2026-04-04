@@ -1,16 +1,31 @@
 import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
+import socket
+import ipaddress
+from urllib.parse import urlparse
+
+def is_safe_url(url):
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    try:
+        ip = socket.gethostbyname(hostname)
+        addr = ipaddress.ip_address(ip)
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            raise ValueError(f"Requests to internal addresses are forbidden.")
+    except socket.gaierror:
+        raise ValueError("Could not resolve hostname.")
 
 # 1. We will initialize the client locally inside the generation function so the user can pass their key.
 def scrape_website_text(url):
     """Fetches the webpage and extracts only human-readable text."""
-    from urllib.parse import urlparse
     
-    # 1. SSRF Mitigation: Validate URL scheme
+    # 1. SSRF Mitigation: Validate URL scheme and safety
     parsed_url = urlparse(url)
     if parsed_url.scheme not in ("http", "https"):
         raise ValueError("Invalid URL scheme. Only HTTP and HTTPS are allowed.")
+        
+    is_safe_url(url)
         
     print(f"Scraping data from: {url} ...")
     
