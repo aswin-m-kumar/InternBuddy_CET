@@ -166,15 +166,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 colors: ['#3b82f6', '#8b5cf6', '#10b981']
             });
 
-            // Parse response naive approach based on prompt text
-            const rawContent = data.content;
-            
+            // Parse response and split into chunks resiliently
+            const rawContent = data.content || "";
             let posterContent = rawContent;
             let whatsappContent = "";
 
-            if(rawContent.includes("TASK 2: WHATSAPP CAPTION")) {
-                const parts = rawContent.split("TASK 2: WHATSAPP CAPTION");
-                posterContent = parts[0].replace("TASK 1: POSTER CONTENT", "").trim();
+            // Robust parsing using Regex to catch LLM hallucinated markdown headers + our strict SPLIT token
+            const splitRegex = /===SPLIT===|TASK 2:\s*WHATSAPP CAPTION|\*\*Whatsapp Caption:?\*\*|\*\*WhatsApp Caption:?\*\*/i;
+            if(splitRegex.test(rawContent)) {
+                const parts = rawContent.split(splitRegex);
+                const part1Regex = /TASK 1:\s*POSTER CONTENT|\*\*Poster Content:?\*\*/i;
+                posterContent = parts[0].replace(part1Regex, "").trim();
                 whatsappContent = parts[1].trim();
             } else {
                 posterContent = rawContent;

@@ -155,6 +155,7 @@ def generate_internship_content(website_text, url, api_key):
     RULES for BOTH tasks:
     - Do NOT add conversational filler, greetings, or explanations.
     - If a field's information is NOT found in the scraped text, OMIT that detail entirely. Do not guess.
+    - You MUST separate Task 1 and Task 2 with exactly the text "===SPLIT===" on a new line. Do NOT use any other header for Task 2.
     
     ---
     
@@ -181,7 +182,7 @@ def generate_internship_content(website_text, url, api_key):
     [Contact Name 1] - [Phone Number 1]
     [Contact Name 2] - [Phone Number 2]
     
-    ---
+    ===SPLIT===
     
     TASK 2: WHATSAPP CAPTION
     Format exactly like this:
