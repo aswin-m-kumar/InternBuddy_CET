@@ -54,4 +54,4 @@ Ensure you have your environment ready with Python installed.
 
 ## Deployment Roadmap
 - **Client Side:** Can be freely hosted statically on [GitHub Pages](https://pages.github.com/).
-- **Server Side:** Easily configured using `gunicorn app:app` upon hosting providers like [Render](https://render.com/).
+- **Server Side:** Easily configured using `gunicorn app:app` upon hosting providers like [Render](https://render.com/). Note that Gunicorn is configured via `gunicorn.conf.py` to use a 120-second timeout, ensuring that lengthy LLM text generation requests do not prematurely crash the worker.
