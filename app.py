@@ -1,6 +1,9 @@
 import os
+import hashlib
 import logging
-from flask import Flask, request, jsonify, send_from_directory
+from urllib.parse import urlparse
+
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -8,7 +11,7 @@ from dotenv import load_dotenv
 
 from models import db, init_db, User, Internship, SavedInternship, Application
 from resume_parser import allowed_file, save_resume, parse_resume, MAX_FILE_SIZE
-from job_scraper import scrape_linkedin_job, save_internship
+from job_scraper import scrape_linkedin_job, save_internship, extract_job_details_from_text
 from matcher import calculate_eligibility_score, search_internships
 
 load_dotenv()
@@ -16,7 +19,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__, static_folder="frontend/dist", static_url_path="/")
+app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
 
 database_url = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
@@ -67,6 +70,46 @@ def get_default_user():
     return user
 
 
+def is_valid_http_url(value):
+    parsed = urlparse(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
+
+
+def build_text_submission_source(text):
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
+    return f"text://{digest}"
+
+
+def normalize_skills(skills):
+    if isinstance(skills, list):
+        return [str(skill).strip() for skill in skills if str(skill).strip()]
+
+    if isinstance(skills, str):
+        return [item.strip() for item in skills.split(",") if item.strip()]
+
+    return []
+
+
+def build_summary_response(details, internship, input_type):
+    source_url = details.get("source_url") or internship.source_url
+    if input_type == "text" and isinstance(source_url, str) and source_url.startswith("text://"):
+        source_url = None
+
+    role_summary = internship.description or details.get("description") or "Summary not available"
+
+    return {
+        "title": internship.title,
+        "company": internship.company,
+        "role_summary": role_summary,
+        "skills": normalize_skills(internship.required_skills or details.get("required_skills")),
+        "eligibility": internship.eligibility or details.get("eligibility"),
+        "stipend": internship.stipend or details.get("stipend"),
+        "location": internship.location or details.get("location"),
+        "duration": internship.duration or details.get("duration"),
+        "source_url": source_url,
+    }
+
+
 @app.after_request
 def set_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -79,12 +122,19 @@ def set_security_headers(response):
 
 @app.route("/")
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    return jsonify({
+        "service": "InternBuddy API",
+        "owner": "Aswin M Kumar",
+        "status": "ok",
+        "message": "Frontend is hosted on GitHub Pages. Use /api/internships/summarize for internship summaries."
+    })
 
 
 @app.route("/dashboard")
 def serve_spa(path=None):
-    return send_from_directory(app.static_folder, "index.html")
+    return jsonify({
+        "error": "Dashboard UI is served from GitHub Pages in this deployment."
+    }), 404
 
 
 @app.errorhandler(413)
@@ -309,13 +359,75 @@ def list_saved():
 
 # ============== Manual Internship Submission ==============
 
+@app.route("/api/internships/summarize", methods=["POST"])
+@limiter.limit("10 per minute")
+def summarize_internship():
+    data = request.get_json(silent=True) or {}
+    input_type = (data.get("input_type") or "").strip().lower()
+    user_input = (data.get("input") or "").strip()
+
+    if input_type not in {"url", "text"}:
+        return jsonify({"error": "input_type must be either 'url' or 'text'"}), 400
+
+    if not user_input:
+        return jsonify({"error": "input is required"}), 400
+
+    api_key = os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Backend configuration error"}), 500
+
+    details = None
+    source = "manual"
+
+    if input_type == "url":
+        if not is_valid_http_url(user_input):
+            return jsonify({"error": "Provide a valid URL starting with http:// or https://"}), 400
+
+        details = scrape_linkedin_job(user_input, api_key)
+        if not details or "error" in details:
+            error_message = details.get("error") if details else "Could not summarize this internship URL"
+            lower_error = error_message.lower()
+
+            if "blocked" in lower_error or "anti-bot" in lower_error:
+                return jsonify({
+                    "error": "LinkedIn blocked automatic scraping. Paste internship details text instead.",
+                    "error_code": "LINKEDIN_BLOCKED"
+                }), 422
+
+            return jsonify({"error": error_message}), 422
+    else:
+        details = extract_job_details_from_text(user_input, api_key)
+        if not details:
+            return jsonify({
+                "error": "Could not summarize the internship details. Please provide more specific text."
+            }), 422
+
+        details["source_url"] = build_text_submission_source(user_input)
+        details["raw_data"] = user_input[:10000]
+        source = "manual_text"
+
+    if not details.get("source_url"):
+        details["source_url"] = build_text_submission_source(user_input)
+
+    internship = save_internship(details, source=source)
+    summary = build_summary_response(details, internship, input_type)
+
+    return jsonify({
+        "success": True,
+        "internship_id": internship.id,
+        "summary": summary
+    })
+
 @app.route("/api/internships/submit", methods=["POST"])
 def submit_internship():
     data = request.get_json(silent=True) or {}
-    url = data.get('url')
+    url = (data.get('url') or '').strip()
 
     if not url:
         return jsonify({'error': 'URL is required'}), 400
+
+    if not is_valid_http_url(url):
+        return jsonify({'error': 'Provide a valid URL starting with http:// or https://'}), 400
 
     api_key = os.getenv("NVIDIA_API_KEY")
     if not api_key:
@@ -324,7 +436,13 @@ def submit_internship():
     details = scrape_linkedin_job(url, api_key)
 
     if 'error' in details:
-        return jsonify({'error': details['error']}), 400
+        message = details['error']
+        if 'blocked' in message.lower() or 'anti-bot' in message.lower():
+            return jsonify({
+                'error': 'LinkedIn blocked automatic scraping. Paste internship details text instead.',
+                'error_code': 'LINKEDIN_BLOCKED'
+            }), 422
+        return jsonify({'error': message}), 422
 
     internship = save_internship(details, source='manual')
 
@@ -341,7 +459,7 @@ def submit_internship():
 def generate_legacy():
     """Legacy endpoint from InternAgent - kept for backward compatibility."""
     return jsonify({
-        'error': 'This endpoint is deprecated. Use /api/internships/submit instead.'
+        'error': 'This endpoint is deprecated. Use /api/internships/summarize instead.'
     }), 410
 
 
