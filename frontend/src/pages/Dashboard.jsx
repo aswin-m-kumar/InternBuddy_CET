@@ -27,6 +27,15 @@ function DetailPill({ label, value }) {
   );
 }
 
+function isValidHttpUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function Dashboard() {
   const [inputType, setInputType] = useState("url");
   const [inputValue, setInputValue] = useState("");
@@ -51,6 +60,11 @@ export function Dashboard() {
           ? "Paste a valid internship URL"
           : "Paste internship details before submitting",
       );
+      return;
+    }
+
+    if (inputType === "url" && !isValidHttpUrl(trimmed)) {
+      setError("Paste a full URL starting with http:// or https://");
       return;
     }
 
