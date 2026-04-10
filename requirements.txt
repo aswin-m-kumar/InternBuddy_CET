@@ -11,3 +11,4 @@ cloudscraper==1.2.71
 pdfplumber==0.11.8
 PyPDF2==3.0.1
 apscheduler==3.11.0
+psycopg2-binary==2.9.10

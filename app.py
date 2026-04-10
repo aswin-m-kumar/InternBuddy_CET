@@ -18,7 +18,12 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder="frontend/dist", static_url_path="/")
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
-app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
+
+database_url = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 
@@ -27,6 +32,7 @@ if not allowed_origins:
     allowed_origins = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
+        "https://aswin-m-kumar.github.io",
     ]
 
 CORS(
