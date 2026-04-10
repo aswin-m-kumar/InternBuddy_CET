@@ -1,4 +1,5 @@
 import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { LiquidGlassCard } from './components/LiquidGlassCard';
 import { Dashboard } from './pages/Dashboard';
 
@@ -72,6 +73,7 @@ function App() {
           <Dashboard />
         </LiquidGlassCard>
       </div>
+      <SpeedInsights />
     </div>
   );
 }
