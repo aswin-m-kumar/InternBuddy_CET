@@ -1,14 +1,14 @@
-import { ShaderGradientCanvas, ShaderGradient } from '@shadergradient/react';
-import { LiquidGlassCard } from './components/LiquidGlassCard';
-import { Dashboard } from './pages/Dashboard';
+import { ShaderGradientCanvas, ShaderGradient } from "@shadergradient/react";
+import { LiquidGlassCard } from "./components/LiquidGlassCard";
+import { Dashboard } from "./pages/Dashboard";
 
 function App() {
   return (
-    <div className="relative min-h-[100svh] w-screen overflow-hidden bg-[#081517]">
+    <div className="relative min-h-[100svh] w-screen overflow-hidden bg-[#d9dde3]">
       {/* Background */}
       <div className="absolute inset-0 z-0">
         <ShaderGradientCanvas
-          style={{ width: '100%', height: '100%' }}
+          style={{ width: "100%", height: "100%" }}
           lazyLoad
           pixelDensity={1}
           pointerEvents="none"
@@ -30,9 +30,9 @@ function App() {
             rotationX={45}
             rotationY={0}
             rotationZ={0}
-            color1="#94ffd1"
-            color2="#6bf5ff"
-            color3="#ffffff"
+            color1="#f6f7f9"
+            color2="#d7dbe2"
+            color3="#9ca4b1"
             reflection={0.1}
             cAzimuthAngle={170}
             cPolarAngle={70}
@@ -40,7 +40,7 @@ function App() {
             cameraZoom={1}
             lightType="3d"
             brightness={1.2}
-            envPreset="city"
+            envPreset="dawn"
             grain="off"
             toggleAxis={false}
             zoomOut={false}
@@ -51,10 +51,10 @@ function App() {
       </div>
 
       {/* Overlay gradients */}
-      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_center,rgba(7,16,20,0.14)_0%,rgba(7,16,20,0.46)_70%,rgba(7,16,20,0.62)_100%)]" />
-      <div className="pointer-events-none absolute inset-0 z-[2] bg-[linear-gradient(155deg,rgba(255,255,255,0.1)_0%,rgba(255,255,255,0)_42%,rgba(0,0,0,0.28)_100%)]" />
-      <div className="pointer-events-none absolute -left-20 top-12 z-[3] h-56 w-56 rounded-full bg-[#9af9f3]/20 blur-3xl" />
-      <div className="pointer-events-none absolute -right-12 bottom-8 z-[3] h-64 w-64 rounded-full bg-[#80d6ff]/20 blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-[radial-gradient(circle_at_center,rgba(250,250,252,0.3)_0%,rgba(214,220,230,0.5)_65%,rgba(160,168,182,0.66)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 z-[2] bg-[linear-gradient(155deg,rgba(255,255,255,0.35)_0%,rgba(255,255,255,0.08)_44%,rgba(72,78,88,0.22)_100%)]" />
+      <div className="pointer-events-none absolute -left-20 top-12 z-[3] h-56 w-56 rounded-full bg-white/35 blur-3xl" />
+      <div className="pointer-events-none absolute -right-12 bottom-8 z-[3] h-64 w-64 rounded-full bg-[#8d96a6]/30 blur-3xl" />
 
       {/* Main Content */}
       <div className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8">
@@ -63,7 +63,7 @@ function App() {
           expandable={false}
           width="100%"
           height="auto"
-          className="max-w-5xl overflow-hidden"
+          className="max-w-6xl overflow-hidden"
           blurIntensity="xl"
           borderRadius="32px"
           glowIntensity="xl"

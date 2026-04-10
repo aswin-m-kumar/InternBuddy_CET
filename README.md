@@ -4,14 +4,15 @@
 
 Built to solve the student pain point: manually searching multiple platforms, wondering if you're eligible, and missing deadlines.
 
-Phase 1 of this repository is a **summarizer-first experience**: students paste an internship link or details and receive a structured summary instantly.
+Phase 2 of this repository is a **summarizer-first experience**: students paste an internship link, raw details, or upload posters/PDFs to receive a structured summary instantly.
 
 ---
 
 ## Features
 
-- **Internship Summarizer (URL/Text)** — Paste an internship link or raw details and get structured output
+- **Internship Summarizer (URL/Text/Upload)** — Paste an internship link, raw details, or upload poster files for structured output
 - **Structured Output** — Extracts role summary, skills, eligibility, stipend, location, and duration
+- **Poster OCR Pipeline** — Supports PNG/JPG/WEBP/PDF uploads and extracts readable text before summarization
 - **Persistent Storage** — Summaries are stored in the backend database for reuse
 - **LinkedIn Fallback Guidance** — If anti-bot protection blocks scraping, app prompts users to paste text details
 - **Resume + Matching Modules Kept** — Existing profile/matching code remains in repo for later phases
@@ -106,6 +107,7 @@ Minimum production variables:
 - `SECRET_KEY`
 - `DATABASE_URL`
 - `NVIDIA_API_KEY`
+- `OCR_SPACE_API_KEY` (optional but recommended for higher OCR reliability)
 - `ALLOWED_ORIGINS=https://aswin-m-kumar.github.io`
 
 ---
@@ -153,22 +155,23 @@ InternBuddy_CET/
 
 ### Internships
 
-| Method | Endpoint                     | Description                            |
-| ------ | ---------------------------- | -------------------------------------- |
-| POST   | `/api/internships/summarize` | Summarize internship from URL or text  |
-| GET    | `/api/internships`           | List internships (with search/filters) |
-| GET    | `/api/internships/:id`       | Get internship details                 |
-| POST   | `/api/internships/:id/save`  | Save internship                        |
-| DELETE | `/api/internships/:id/save`  | Unsave internship                      |
-| GET    | `/api/saved`                 | List saved internships                 |
-| POST   | `/api/internships/submit`    | Submit LinkedIn URL for scraping       |
+| Method | Endpoint                          | Description                                   |
+| ------ | --------------------------------- | --------------------------------------------- |
+| POST   | `/api/internships/summarize`      | Summarize internship from URL or text         |
+| POST   | `/api/internships/summarize-file` | Summarize internship from uploaded poster/PDF |
+| GET    | `/api/internships`                | List internships (with search/filters)        |
+| GET    | `/api/internships/:id`            | Get internship details                        |
+| POST   | `/api/internships/:id/save`       | Save internship                               |
+| DELETE | `/api/internships/:id/save`       | Unsave internship                             |
+| GET    | `/api/saved`                      | List saved internships                        |
+| POST   | `/api/internships/submit`         | Submit LinkedIn URL for scraping              |
 
 ---
 
 ## How It Works
 
-1. **Paste internship link or text** — Students can submit URL mode or pasted-details mode
-2. **AI extracts structured details** — The backend normalizes title, company, summary, skills, and eligibility
+1. **Submit internship input** — Students can use URL mode, pasted-details mode, or poster/PDF upload mode
+2. **Text extraction and AI parsing** — Uploaded files pass through OCR/PDF extraction, then AI normalizes title, company, summary, skills, and eligibility
 3. **View instant summary** — Frontend renders concise cards for quick screening
 4. **Persist for reuse** — Parsed records are saved in the internship database
 5. **Fallback on blocked scraping** — If LinkedIn blocks, users are guided to paste details manually
@@ -180,7 +183,7 @@ InternBuddy_CET/
 - **No Login Required:** This small-scale version uses a single local profile instead of student authentication.
 - **Database Migrations:** For SQLite, the database auto-creates on first run. For PostgreSQL production, use Alembic for migrations.
 - **LinkedIn Scraping:** LinkedIn has strong anti-bot protection. If blocked, API responds with guidance to paste raw internship details.
-- **Rate Limits:** Default is 20 requests/hour per IP globally and 10 requests/minute for `/api/internships/summarize`.
+- **Rate Limits:** Default is 20 requests/hour per IP globally and 10 requests/minute for both `/api/internships/summarize` and `/api/internships/summarize-file`.
 - **Resume & Matching Modules:** Still present in codebase but not the primary Phase 1 frontend flow.
 
 ---

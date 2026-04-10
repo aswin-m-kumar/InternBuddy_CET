@@ -1,6 +1,8 @@
 import os
 import re
+import hashlib
 import logging
+from io import BytesIO
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urljoin
 import requests
@@ -14,6 +16,9 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 15
 MAX_REDIRECTS = 5
 ALLOWED_SCHEMES = ("http", "https")
+UPLOAD_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
+UPLOAD_PDF_EXTENSIONS = {"pdf"}
+OCR_API_URL = "https://api.ocr.space/parse/image"
 PLACEHOLDER_VALUES = {"unknown", "unknown position", "unknown company", "n/a", "na", "none", "null", "not specified"}
 STOPWORDS = {
     "the", "and", "for", "with", "this", "that", "from", "into", "will", "are", "you",
@@ -257,6 +262,102 @@ def scrape_internship_cell_poster(text_content, source_url, api_key):
         details['raw_data'] = text_content
         details['source'] = 'internship_cell'
     return details
+
+
+def build_file_source_url(file_bytes, filename):
+    digest = hashlib.sha256(file_bytes).hexdigest()[:24]
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", (filename or "upload")).strip("-") or "upload"
+    return f"file://{digest}/{safe_name}"
+
+
+def extract_text_from_pdf_bytes(file_bytes):
+    try:
+        import pdfplumber
+
+        text_parts = []
+        with pdfplumber.open(BytesIO(file_bytes)) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    text_parts.append(page_text.strip())
+
+        text = "\n".join(text_parts).strip()
+        return text or None
+    except Exception as exc:
+        logger.error("PDF extraction error: %s", exc)
+        return None
+
+
+def extract_text_from_image_bytes(file_bytes, filename, ocr_api_key=None):
+    api_key = ocr_api_key or os.getenv("OCR_SPACE_API_KEY") or "helloworld"
+    warnings = []
+    if api_key == "helloworld":
+        warnings.append("Using OCR demo key; accuracy and rate limits may be restricted")
+
+    payload = {
+        "apikey": api_key,
+        "language": "eng",
+        "OCREngine": "2",
+        "isOverlayRequired": "false",
+        "detectOrientation": "true",
+        "scale": "true",
+    }
+
+    files = {
+        "filename": (filename or "poster.png", file_bytes)
+    }
+
+    try:
+        response = requests.post(
+            OCR_API_URL,
+            data=payload,
+            files=files,
+            timeout=REQUEST_TIMEOUT + 20,
+        )
+    except Exception as exc:
+        logger.error("OCR request failed: %s", exc)
+        return {"error": "OCR request failed", "warnings": warnings}
+
+    if response.status_code != 200:
+        logger.error("OCR API returned status %s", response.status_code)
+        return {"error": "OCR service unavailable", "warnings": warnings}
+
+    try:
+        result = response.json()
+    except Exception:
+        return {"error": "OCR response parsing failed", "warnings": warnings}
+
+    if result.get("IsErroredOnProcessing"):
+        errors = result.get("ErrorMessage") or ["OCR processing failed"]
+        return {"error": str(errors[0]), "warnings": warnings}
+
+    parsed_results = result.get("ParsedResults") or []
+    extracted = "\n".join(
+        (item.get("ParsedText") or "").strip()
+        for item in parsed_results
+        if (item.get("ParsedText") or "").strip()
+    ).strip()
+
+    if not extracted:
+        return {"error": "No readable text found in uploaded image", "warnings": warnings}
+
+    return {"text": extracted, "warnings": warnings}
+
+
+def extract_text_from_uploaded_file(file_bytes, filename, content_type=None, ocr_api_key=None):
+    extension = (filename or "").lower().rsplit(".", 1)[-1] if "." in (filename or "") else ""
+
+    if extension in UPLOAD_PDF_EXTENSIONS or content_type == "application/pdf":
+        text = extract_text_from_pdf_bytes(file_bytes)
+        if not text:
+            return {"error": "Could not extract text from PDF", "warnings": []}
+        return {"text": text, "warnings": []}
+
+    if extension in UPLOAD_IMAGE_EXTENSIONS or (content_type or "").startswith("image/"):
+        return extract_text_from_image_bytes(file_bytes, filename, ocr_api_key)
+
+    supported = ", ".join(sorted(UPLOAD_IMAGE_EXTENSIONS | UPLOAD_PDF_EXTENSIONS))
+    return {"error": f"Unsupported file type. Supported formats: {supported}", "warnings": []}
 
 
 def save_internship(details, source='linkedin'):

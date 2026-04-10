@@ -11,7 +11,13 @@ from dotenv import load_dotenv
 
 from models import db, init_db, User, Internship, SavedInternship, Application
 from resume_parser import allowed_file, save_resume, parse_resume, MAX_FILE_SIZE
-from job_scraper import scrape_linkedin_job, save_internship, extract_job_details_from_text
+from job_scraper import (
+    scrape_linkedin_job,
+    save_internship,
+    extract_job_details_from_text,
+    extract_text_from_uploaded_file,
+    build_file_source_url,
+)
 from matcher import calculate_eligibility_score, search_internships
 
 load_dotenv()
@@ -30,6 +36,9 @@ if database_url.startswith("postgres://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
+
+SUMMARY_UPLOAD_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "pdf"}
+MAX_SUMMARY_UPLOAD_SIZE = 8 * 1024 * 1024
 
 allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 if not allowed_origins:
@@ -76,6 +85,10 @@ def is_valid_http_url(value):
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
+def allowed_summary_upload(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in SUMMARY_UPLOAD_EXTENSIONS
+
+
 def build_text_submission_source(text):
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:24]
     return f"text://{digest}"
@@ -102,7 +115,7 @@ def clean_placeholder_value(value):
 
 def build_summary_response(details, internship, input_type):
     source_url = details.get("source_url") or internship.source_url
-    if input_type == "text" and isinstance(source_url, str) and source_url.startswith("text://"):
+    if not (isinstance(source_url, str) and is_valid_http_url(source_url)):
         source_url = None
 
     title = clean_placeholder_value(details.get("title")) or clean_placeholder_value(internship.title)
@@ -382,6 +395,71 @@ def list_saved():
 
 
 # ============== Manual Internship Submission ==============
+
+@app.route("/api/internships/summarize-file", methods=["POST"])
+@limiter.limit("10 per minute")
+def summarize_internship_file():
+    uploaded_file = request.files.get("file")
+    if not uploaded_file:
+        return jsonify({"error": "file is required"}), 400
+
+    if uploaded_file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+
+    if not allowed_summary_upload(uploaded_file.filename):
+        supported = ", ".join(sorted(SUMMARY_UPLOAD_EXTENSIONS))
+        return jsonify({"error": f"Unsupported file type. Supported formats: {supported}"}), 400
+
+    file_bytes = uploaded_file.read()
+    if not file_bytes:
+        return jsonify({"error": "Uploaded file is empty"}), 400
+
+    if len(file_bytes) > MAX_SUMMARY_UPLOAD_SIZE:
+        return jsonify({"error": "File too large. Keep upload under 8MB"}), 413
+
+    api_key = os.getenv("NVIDIA_API_KEY")
+    if not api_key:
+        return jsonify({"error": "Backend configuration error"}), 500
+
+    extraction_result = extract_text_from_uploaded_file(
+        file_bytes,
+        uploaded_file.filename,
+        uploaded_file.content_type,
+        os.getenv("OCR_SPACE_API_KEY"),
+    )
+
+    if extraction_result.get("error"):
+        return jsonify({
+            "error": extraction_result["error"],
+            "warnings": extraction_result.get("warnings", []),
+        }), 422
+
+    extracted_text = (extraction_result.get("text") or "").strip()
+    if len(extracted_text) < 60:
+        return jsonify({
+            "error": "Could not extract enough readable internship text from uploaded file",
+            "warnings": extraction_result.get("warnings", []),
+        }), 422
+
+    details = extract_job_details_from_text(extracted_text, api_key)
+    if not details:
+        return jsonify({
+            "error": "Could not summarize internship details from uploaded file",
+            "warnings": extraction_result.get("warnings", []),
+        }), 422
+
+    details["source_url"] = build_file_source_url(file_bytes, uploaded_file.filename)
+    details["raw_data"] = extracted_text[:10000]
+
+    internship = save_internship(details, source="poster_upload")
+    summary = build_summary_response(details, internship, "file")
+
+    return jsonify({
+        "success": True,
+        "internship_id": internship.id,
+        "summary": summary,
+        "warnings": extraction_result.get("warnings", []),
+    })
 
 @app.route("/api/internships/summarize", methods=["POST"])
 @limiter.limit("10 per minute")
