@@ -12,40 +12,40 @@ function App() {
             width: '100%',
             height: '100%',
           }}
-          lazyLoad={false}
-          fov={45}
+          lazyLoad={undefined}
+          fov={undefined}
           pixelDensity={1}
           pointerEvents="none"
         >
           <ShaderGradient
             animate="on"
-            type="sphere"
+            type="waterPlane"
             wireframe={false}
             shader="defaults"
             uTime={0}
-            uSpeed={0.3}
-            uStrength={0.3}
-            uDensity={0.8}
-            uFrequency={5.5}
-            uAmplitude={3.2}
-            positionX={-0.1}
-            positionY={0}
-            positionZ={0}
-            rotationX={0}
-            rotationY={130}
-            rotationZ={70}
-            color1="#73bfc4"
-            color2="#ff810a"
-            color3="#8da0ce"
-            reflection={0.4}
-            cAzimuthAngle={270}
-            cPolarAngle={180}
-            cDistance={0.5}
-            cameraZoom={15.1}
-            lightType="env"
-            brightness={0.8}
+            uSpeed={0.2}
+            uStrength={3.4}
+            uDensity={1.2}
+            uFrequency={0}
+            uAmplitude={0}
+            positionX={0}
+            positionY={0.9}
+            positionZ={-0.3}
+            rotationX={45}
+            rotationY={0}
+            rotationZ={0}
+            color1="#94ffd1"
+            color2="#6bf5ff"
+            color3="#ffffff"
+            reflection={0.1}
+            cAzimuthAngle={170}
+            cPolarAngle={70}
+            cDistance={4.4}
+            cameraZoom={1}
+            lightType="3d"
+            brightness={1.2}
             envPreset="city"
-            grain="on"
+            grain="off"
             toggleAxis={false}
             zoomOut={false}
             hoverState=""
