@@ -293,6 +293,11 @@ def extract_text_from_image_bytes(file_bytes, filename, ocr_api_key=None):
     warnings = []
     if api_key == "helloworld":
         warnings.append("Using OCR demo key; accuracy and rate limits may be restricted")
+        if len(file_bytes) > 1024 * 1024:
+            return {
+                "error": "Image exceeds 1MB demo OCR limit. Use a smaller image or configure OCR_SPACE_API_KEY.",
+                "warnings": warnings,
+            }
 
     payload = {
         "apikey": api_key,
@@ -329,7 +334,10 @@ def extract_text_from_image_bytes(file_bytes, filename, ocr_api_key=None):
 
     if result.get("IsErroredOnProcessing"):
         errors = result.get("ErrorMessage") or ["OCR processing failed"]
-        return {"error": str(errors[0]), "warnings": warnings}
+        primary_error = str(errors[0])
+        if "maximum permissible file size limit of 1024 KB" in primary_error:
+            primary_error = "Image exceeds 1MB OCR limit. Use a smaller image or configure OCR_SPACE_API_KEY."
+        return {"error": primary_error, "warnings": warnings}
 
     parsed_results = result.get("ParsedResults") or []
     extracted = "\n".join(
