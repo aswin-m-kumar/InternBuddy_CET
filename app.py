@@ -108,6 +108,7 @@ def build_summary_response(details, internship, input_type):
         "location": internship.location or details.get("location"),
         "duration": internship.duration or details.get("duration"),
         "source_url": source_url,
+        "grounding_warnings": details.get("grounding_warnings", []),
     }
 
 
@@ -409,6 +410,20 @@ def summarize_internship():
 
     if not details.get("source_url"):
         details["source_url"] = build_text_submission_source(user_input)
+
+    core_signals = [
+        details.get("title"),
+        details.get("company"),
+        details.get("description"),
+        details.get("required_skills"),
+    ]
+    has_core_signal = any(
+        signal for signal in core_signals if signal and (not isinstance(signal, list) or len(signal) > 0)
+    )
+    if not has_core_signal:
+        return jsonify({
+            "error": "Could not extract reliable details from this source. Paste fuller internship text to reduce AI guessing."
+        }), 422
 
     internship = save_internship(details, source=source)
     summary = build_summary_response(details, internship, input_type)

@@ -248,6 +248,18 @@ export function Dashboard() {
                 </p>
               </div>
 
+              {(summary.grounding_warnings || []).length > 0 && (
+                <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4">
+                  <p className="text-xs uppercase tracking-[0.14em] text-amber-200/90">
+                    Reliability notes
+                  </p>
+                  <p className="mt-2 text-sm text-amber-100/85">
+                    Only details grounded in the source were shown. Unverified
+                    fields were removed.
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-xl border border-white/10 bg-[#05161b]/90 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-white/45">
                   Required skills
