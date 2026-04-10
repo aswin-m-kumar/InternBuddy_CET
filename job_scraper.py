@@ -14,155 +14,144 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 15
 MAX_REDIRECTS = 5
 ALLOWED_SCHEMES = ("http", "https")
+PLACEHOLDER_VALUES = {"unknown", "unknown position", "unknown company", "n/a", "na", "none", "null", "not specified"}
+STOPWORDS = {
+    "the", "and", "for", "with", "this", "that", "from", "into", "will", "are", "you",
+    "your", "our", "their", "have", "has", "was", "were", "been", "can", "all", "any",
+    "job", "role", "internship", "intern", "candidate", "candidates"
+}
 
 
-def _clean_text(value):
-    return re.sub(r"\s+", " ", str(value or "")).strip()
+def normalize_text(value):
+    cleaned = re.sub(r"[^a-z0-9+./# ]+", " ", (value or "").lower())
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def _tokenize(value):
-    return re.findall(r"[a-z0-9\+#\.]{2,}", _clean_text(value).lower())
+def tokenize(value):
+    tokens = re.findall(r"[a-z0-9+#./]{3,}", normalize_text(value))
+    return {token for token in tokens if token not in STOPWORDS}
 
 
-def _token_present(token, source_tokens):
-    if token in source_tokens:
+def phrase_in_source(phrase, normalized_source):
+    normalized_phrase = normalize_text(phrase)
+    if not normalized_phrase:
+        return False
+    return normalized_phrase in normalized_source
+
+
+def overlap_ratio(value, source_tokens):
+    value_tokens = tokenize(value)
+    if not value_tokens:
+        return 0.0
+    overlap_count = sum(1 for token in value_tokens if token in source_tokens)
+    return overlap_count / len(value_tokens)
+
+
+def normalize_skill_list(skills):
+    if isinstance(skills, list):
+        normalized = [str(skill).strip() for skill in skills if str(skill).strip()]
+        return normalized
+    if isinstance(skills, str):
+        return [item.strip() for item in skills.split(",") if item.strip()]
+    return []
+
+
+def is_placeholder(value):
+    if value is None:
         return True
-
-    if len(token) < 5:
-        return False
-
-    token_stem = token[:5]
-    for source_token in source_tokens:
-        if len(source_token) < 5:
-            continue
-        source_stem = source_token[:5]
-        if token_stem == source_stem:
-            return True
-
-    return False
+    return normalize_text(str(value)) in PLACEHOLDER_VALUES
 
 
-def _is_grounded_phrase(phrase, source_text):
-    phrase_clean = _clean_text(phrase)
-    if not phrase_clean:
-        return False
-
-    source_clean = _clean_text(source_text)
-    if not source_clean:
-        return False
-
-    phrase_lower = phrase_clean.lower()
-    source_lower = source_clean.lower()
-
-    if phrase_lower in source_lower:
-        return True
-
-    phrase_tokens = _tokenize(phrase_lower)
-    if not phrase_tokens:
-        return False
-
-    source_tokens = set(_tokenize(source_lower))
-    matched = sum(1 for token in phrase_tokens if _token_present(token, source_tokens))
-    return matched / len(phrase_tokens) >= 0.75
-
-
-def _grounded_description(source_text, max_chars=320):
-    clean_source = _clean_text(source_text)
-    if not clean_source:
+def best_effort_excerpt(source_text, max_chars=320):
+    if not source_text:
         return None
 
-    sentences = re.split(r"(?<=[.!?])\s+", clean_source)
-    selected = []
-    length = 0
-
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if len(sentence) < 25:
+    parts = re.split(r"(?<=[.!?])\s+", source_text.strip())
+    excerpt = ""
+    for part in parts:
+        sentence = part.strip()
+        if len(sentence) < 20:
             continue
-
-        projected = length + len(sentence) + (1 if selected else 0)
-        if projected > max_chars:
+        candidate = f"{excerpt} {sentence}".strip()
+        if len(candidate) > max_chars:
+            break
+        excerpt = candidate
+        if len(excerpt) >= 200:
             break
 
-        selected.append(sentence)
-        length = projected
-
-        if len(selected) >= 2:
-            break
-
-    if selected:
-        return " ".join(selected)
-
-    return clean_source[:max_chars]
+    excerpt = excerpt or source_text.strip()[:max_chars]
+    return excerpt[:max_chars]
 
 
-def sanitize_extracted_job_details(raw_details, source_text):
-    """Keep only fields grounded in source text to reduce hallucinated values."""
-    if not isinstance(raw_details, dict):
+def ground_extracted_details(details, source_text):
+    """Drop low-evidence fields so unsupported claims are not returned."""
+    if not isinstance(details, dict):
         return None
 
+    grounded = dict(details)
     warnings = []
+    checks_total = 0
+    checks_passed = 0
 
-    def normalize_string_field(field_name):
-        raw_value = raw_details.get(field_name)
-        if raw_value is None:
-            return None
+    normalized_source = normalize_text(source_text)
+    source_tokens = tokenize(source_text)
 
-        cleaned = _clean_text(raw_value)
-        if not cleaned:
-            return None
-
-        if not _is_grounded_phrase(cleaned, source_text):
-            warnings.append(f"{field_name} was dropped because it was not clearly present in source text")
-            return None
-
-        return cleaned
-
-    sanitized = {
-        "title": normalize_string_field("title"),
-        "company": normalize_string_field("company"),
-        "eligibility": normalize_string_field("eligibility"),
-        "location": normalize_string_field("location"),
-        "duration": normalize_string_field("duration"),
-        "stipend": normalize_string_field("stipend"),
-    }
-
-    raw_description = _clean_text(raw_details.get("description"))
-    if raw_description and _is_grounded_phrase(raw_description, source_text):
-        sanitized["description"] = raw_description
-    else:
-        if raw_description:
-            warnings.append("description was replaced with a direct source excerpt")
-        sanitized["description"] = _grounded_description(source_text)
-
-    raw_skills = raw_details.get("required_skills")
-    if isinstance(raw_skills, str):
-        candidate_skills = [item.strip() for item in raw_skills.split(",") if item.strip()]
-    elif isinstance(raw_skills, list):
-        candidate_skills = [str(item).strip() for item in raw_skills if str(item).strip()]
-    else:
-        candidate_skills = []
-
-    deduped_skills = []
-    seen = set()
-    for skill in candidate_skills:
-        key = skill.lower()
-        if key in seen:
+    scalar_fields = ["title", "company", "location", "duration", "stipend"]
+    for field_name in scalar_fields:
+        value = grounded.get(field_name)
+        if is_placeholder(value):
+            grounded[field_name] = None
             continue
-        seen.add(key)
 
-        if _is_grounded_phrase(skill, source_text):
-            deduped_skills.append(skill)
+        checks_total += 1
+        if phrase_in_source(str(value), normalized_source):
+            checks_passed += 1
+        else:
+            grounded[field_name] = None
+            warnings.append(f"Dropped {field_name}: not found in source text")
 
-    if candidate_skills and not deduped_skills:
-        warnings.append("required_skills were dropped because they were not clearly present in source text")
+    eligibility_value = grounded.get("eligibility")
+    if not is_placeholder(eligibility_value):
+        checks_total += 1
+        if overlap_ratio(str(eligibility_value), source_tokens) >= 0.5:
+            checks_passed += 1
+        else:
+            grounded["eligibility"] = None
+            warnings.append("Dropped eligibility: low evidence in source text")
+    else:
+        grounded["eligibility"] = None
 
-    sanitized["required_skills"] = deduped_skills
+    description_value = grounded.get("description")
+    if not is_placeholder(description_value):
+        checks_total += 1
+        if overlap_ratio(str(description_value), source_tokens) >= 0.45:
+            checks_passed += 1
+        else:
+            grounded["description"] = best_effort_excerpt(source_text)
+            warnings.append("Replaced description with source excerpt to avoid unsupported summary")
+    else:
+        grounded["description"] = best_effort_excerpt(source_text)
 
-    if warnings:
-        sanitized["grounding_warnings"] = warnings
+    requested_skills = normalize_skill_list(grounded.get("required_skills"))
+    grounded_skills = []
+    dropped_skills = []
+    for skill in requested_skills:
+        checks_total += 1
+        if phrase_in_source(skill, normalized_source):
+            checks_passed += 1
+            grounded_skills.append(skill)
+        else:
+            dropped_skills.append(skill)
 
-    return sanitized
+    grounded["required_skills"] = grounded_skills
+    if dropped_skills:
+        warnings.append("Dropped skills not found in source: " + ", ".join(dropped_skills[:8]))
+
+    confidence_score = int((checks_passed / checks_total) * 100) if checks_total else 0
+    grounded["grounding_score"] = confidence_score
+    grounded["grounding_warnings"] = warnings
+
+    return grounded
 
 
 def extract_job_details_from_text(text, api_key):
@@ -173,23 +162,21 @@ def extract_job_details_from_text(text, api_key):
     )
 
     prompt = f"""
-    Extract internship/job details from this text.
-
-    CRITICAL RULES:
-    - Use ONLY details that are explicitly present in the text.
-    - Never infer, guess, or fill missing values.
-    - If a field is not clearly mentioned, return null for that field.
-    - required_skills must include only skills that are directly mentioned.
-    - Return ONLY valid JSON with this exact schema:
+    Extract internship/job details ONLY from the given text.
+    Rules:
+    - Do not guess or infer missing facts.
+    - If a field is not explicitly present, return null.
+    - required_skills must contain only skills explicitly present in the text.
+    - Return ONLY valid JSON with this exact shape:
     {{
-        "title": "string or null",
-        "company": "string or null",
-        "description": "grounded 1-2 sentence summary or null",
-        "eligibility": "string or null",
+        "title": "job title or null",
+        "company": "company name or null",
+        "description": "concise summary copied/paraphrased from source only or null",
+        "eligibility": "eligibility criteria from source or null",
         "required_skills": ["skill1", "skill2"],
-        "location": "string or null",
-        "duration": "string or null",
-        "stipend": "string or null"
+        "location": "location or null",
+        "duration": "duration or null",
+        "stipend": "stipend or null"
     }}
 
     Text to analyze:
@@ -200,7 +187,10 @@ def extract_job_details_from_text(text, api_key):
         response = client.chat.completions.create(
             model="meta/llama-3.1-70b-instruct",
             messages=[
-                {"role": "system", "content": "You are a strict extractor. Return only grounded JSON. Never guess."},
+                {
+                    "role": "system",
+                    "content": "You are an information extraction engine. Output strict JSON only. Never invent missing values."
+                },
                 {"role": "user", "content": prompt}
             ],
             max_tokens=600,
@@ -214,7 +204,7 @@ def extract_job_details_from_text(text, api_key):
 
         import json
         parsed = json.loads(content)
-        return sanitize_extracted_job_details(parsed, text)
+        return ground_extracted_details(parsed, text)
 
     except Exception as e:
         logger.error(f"Job details extraction error: {e}")

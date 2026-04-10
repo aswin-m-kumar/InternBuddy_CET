@@ -91,24 +91,46 @@ def normalize_skills(skills):
     return []
 
 
+def clean_placeholder_value(value):
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"unknown", "unknown position", "unknown company", "n/a", "na", "none", "null", "not specified"}:
+        return None
+    return value
+
+
 def build_summary_response(details, internship, input_type):
     source_url = details.get("source_url") or internship.source_url
     if input_type == "text" and isinstance(source_url, str) and source_url.startswith("text://"):
         source_url = None
 
-    role_summary = internship.description or details.get("description") or "Summary not available"
+    title = clean_placeholder_value(details.get("title")) or clean_placeholder_value(internship.title)
+    company = clean_placeholder_value(details.get("company")) or clean_placeholder_value(internship.company)
+
+    role_summary = (
+        clean_placeholder_value(details.get("description"))
+        or clean_placeholder_value(internship.description)
+        or "Summary not available"
+    )
+
+    confidence_score = details.get("grounding_score")
+    warnings = details.get("grounding_warnings")
+    if not isinstance(warnings, list):
+        warnings = []
 
     return {
-        "title": internship.title,
-        "company": internship.company,
+        "title": title,
+        "company": company,
         "role_summary": role_summary,
         "skills": normalize_skills(internship.required_skills or details.get("required_skills")),
-        "eligibility": internship.eligibility or details.get("eligibility"),
-        "stipend": internship.stipend or details.get("stipend"),
-        "location": internship.location or details.get("location"),
-        "duration": internship.duration or details.get("duration"),
+        "eligibility": clean_placeholder_value(details.get("eligibility")) or clean_placeholder_value(internship.eligibility),
+        "stipend": clean_placeholder_value(details.get("stipend")) or clean_placeholder_value(internship.stipend),
+        "location": clean_placeholder_value(details.get("location")) or clean_placeholder_value(internship.location),
+        "duration": clean_placeholder_value(details.get("duration")) or clean_placeholder_value(internship.duration),
         "source_url": source_url,
-        "grounding_warnings": details.get("grounding_warnings", []),
+        "confidence_score": confidence_score,
+        "verification_warnings": warnings,
     }
 
 
@@ -410,20 +432,6 @@ def summarize_internship():
 
     if not details.get("source_url"):
         details["source_url"] = build_text_submission_source(user_input)
-
-    core_signals = [
-        details.get("title"),
-        details.get("company"),
-        details.get("description"),
-        details.get("required_skills"),
-    ]
-    has_core_signal = any(
-        signal for signal in core_signals if signal and (not isinstance(signal, list) or len(signal) > 0)
-    )
-    if not has_core_signal:
-        return jsonify({
-            "error": "Could not extract reliable details from this source. Paste fuller internship text to reduce AI guessing."
-        }), 422
 
     internship = save_internship(details, source=source)
     summary = build_summary_response(details, internship, input_type)

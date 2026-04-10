@@ -239,6 +239,12 @@ export function Dashboard() {
                 <DetailPill label="Stipend" value={summary.stipend} />
               </div>
 
+              {typeof summary.confidence_score === "number" && (
+                <div className="rounded-xl border border-amber-300/25 bg-amber-300/10 p-3 text-xs text-amber-100">
+                  Confidence score: {summary.confidence_score}%
+                </div>
+              )}
+
               <div className="rounded-xl border border-white/10 bg-[#05161b]/90 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-white/45">
                   Role summary
@@ -247,18 +253,6 @@ export function Dashboard() {
                   {summary.role_summary || "Summary not available"}
                 </p>
               </div>
-
-              {(summary.grounding_warnings || []).length > 0 && (
-                <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4">
-                  <p className="text-xs uppercase tracking-[0.14em] text-amber-200/90">
-                    Reliability notes
-                  </p>
-                  <p className="mt-2 text-sm text-amber-100/85">
-                    Only details grounded in the source were shown. Unverified
-                    fields were removed.
-                  </p>
-                </div>
-              )}
 
               <div className="rounded-xl border border-white/10 bg-[#05161b]/90 p-4">
                 <p className="text-xs uppercase tracking-[0.14em] text-white/45">
@@ -290,6 +284,20 @@ export function Dashboard() {
                   {summary.eligibility || "Not mentioned in source details"}
                 </p>
               </div>
+
+              {Array.isArray(summary.verification_warnings) &&
+                summary.verification_warnings.length > 0 && (
+                  <div className="rounded-xl border border-red-400/35 bg-red-400/10 p-4">
+                    <p className="text-xs uppercase tracking-[0.14em] text-red-100/90">
+                      Verification warnings
+                    </p>
+                    <ul className="mt-2 list-disc space-y-1 pl-4 text-xs text-red-100/80">
+                      {summary.verification_warnings.map((warning) => (
+                        <li key={warning}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
 
               <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/60">
                 <span>
