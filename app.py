@@ -19,7 +19,8 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+running_on_vercel = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+app = Flask(__name__, instance_path="/tmp") if running_on_vercel else Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
 
 database_url = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
