@@ -9,6 +9,7 @@ import requests
 import cloudscraper
 from bs4 import BeautifulSoup
 from openai import OpenAI
+from PIL import Image, ImageOps
 from models import Internship, db
 
 logger = logging.getLogger(__name__)
@@ -288,16 +289,66 @@ def extract_text_from_pdf_bytes(file_bytes):
         return None
 
 
+def compress_image_for_ocr(file_bytes, max_bytes=1024 * 1024):
+    try:
+        with Image.open(BytesIO(file_bytes)) as image:
+            image = ImageOps.exif_transpose(image)
+
+            if image.mode in {"RGBA", "LA", "P"}:
+                background = Image.new("RGB", image.size, "white")
+                background.paste(image.convert("RGBA"), mask=image.convert("RGBA").split()[-1])
+                image = background
+            elif image.mode != "RGB":
+                image = image.convert("RGB")
+
+            working_image = image.copy()
+            working_image.thumbnail((2200, 2200))
+
+            qualities = (92, 84, 76, 68, 60)
+            for quality in qualities:
+                buffer = BytesIO()
+                working_image.save(buffer, format="JPEG", quality=quality, optimize=True, progressive=True)
+                compressed = buffer.getvalue()
+                if len(compressed) <= max_bytes:
+                    return compressed, True
+
+            resized_image = working_image
+            while resized_image.width > 800 and resized_image.height > 800:
+                resized_image = resized_image.copy()
+                resized_image.thumbnail(
+                    (max(800, int(resized_image.width * 0.85)), max(800, int(resized_image.height * 0.85)))
+                )
+
+                for quality in qualities:
+                    buffer = BytesIO()
+                    resized_image.save(buffer, format="JPEG", quality=quality, optimize=True, progressive=True)
+                    compressed = buffer.getvalue()
+                    if len(compressed) <= max_bytes:
+                        return compressed, True
+
+            buffer = BytesIO()
+            resized_image.save(buffer, format="JPEG", quality=60, optimize=True, progressive=True)
+            return buffer.getvalue(), False
+    except Exception as exc:
+        logger.error("Image compression for OCR failed: %s", exc)
+        return file_bytes, False
+
+
 def extract_text_from_image_bytes(file_bytes, filename, ocr_api_key=None):
     api_key = ocr_api_key or os.getenv("OCR_SPACE_API_KEY") or "helloworld"
     warnings = []
     if api_key == "helloworld":
         warnings.append("Using OCR demo key; accuracy and rate limits may be restricted")
         if len(file_bytes) > 1024 * 1024:
-            return {
-                "error": "Image exceeds 1MB demo OCR limit. Use a smaller image or configure OCR_SPACE_API_KEY.",
-                "warnings": warnings,
-            }
+            compressed_bytes, compressed_ok = compress_image_for_ocr(file_bytes)
+            if compressed_bytes and len(compressed_bytes) <= 1024 * 1024:
+                file_bytes = compressed_bytes
+                warnings.append("Compressed image for OCR demo key size limit")
+            elif compressed_ok:
+                file_bytes = compressed_bytes
+                warnings.append("Compressed image for OCR demo key size limit")
+            else:
+                warnings.append("Could not compress image under OCR demo size limit")
 
     payload = {
         "apikey": api_key,
@@ -309,7 +360,7 @@ def extract_text_from_image_bytes(file_bytes, filename, ocr_api_key=None):
     }
 
     files = {
-        "filename": (filename or "poster.png", file_bytes)
+        "filename": (filename or "poster.jpg", file_bytes)
     }
 
     try:

@@ -183,7 +183,7 @@ InternBuddy_CET/
 - **No Login Required:** This small-scale version uses a single local profile instead of student authentication.
 - **Database Migrations:** For SQLite, the database auto-creates on first run. For PostgreSQL production, use Alembic for migrations.
 - **LinkedIn Scraping:** LinkedIn has strong anti-bot protection. If blocked, API responds with guidance to paste raw internship details.
-- **Poster OCR Key:** Without `OCR_SPACE_API_KEY`, the demo OCR key applies strict limits (including ~1MB image size). Configure your own key for reliable Phase 2 uploads.
+- **Poster OCR Key:** Without `OCR_SPACE_API_KEY`, the demo OCR key applies strict limits, but the app now auto-compresses oversized images before OCR. Configure your own key for the most reliable Phase 2 uploads.
 - **Rate Limits:** Default is 20 requests/hour per IP globally and 10 requests/minute for both `/api/internships/summarize` and `/api/internships/summarize-file`.
 - **Resume & Matching Modules:** Still present in codebase but not the primary summarizer frontend flow.
 
