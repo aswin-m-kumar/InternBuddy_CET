@@ -4,18 +4,21 @@ import logging
 import json
 import re
 import unicodedata
+from datetime import timedelta
 from io import BytesIO
 from collections import Counter
 from urllib.parse import urlparse
 from sqlalchemy import func, case
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_migrate import Migrate
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 from openai import OpenAI
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
 from models import db, init_db, User, Internship, SavedInternship, Application, UsageLog
 from resume_parser import allowed_file, save_resume, parse_resume, MAX_FILE_SIZE
@@ -25,6 +28,7 @@ from job_scraper import (
     extract_job_details_from_text,
     extract_text_from_uploaded_file,
     build_file_source_url,
+    is_allowed_internship_url,
 )
 from matcher import calculate_eligibility_score, search_internships
 from deadline_utils import parse_deadline, extract_deadline_candidate
@@ -37,6 +41,10 @@ logger = logging.getLogger(__name__)
 running_on_vercel = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
 app = Flask(__name__, instance_path="/tmp") if running_on_vercel else Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None" if running_on_vercel else "Lax"
+app.config["SESSION_COOKIE_SECURE"] = bool(running_on_vercel)
+app.permanent_session_lifetime = timedelta(days=30)
 
 database_url = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
 if database_url.startswith("postgres://"):
@@ -51,6 +59,7 @@ MAX_SUMMARY_UPLOAD_SIZE = 8 * 1024 * 1024
 ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "llama-3.3-70b-versatile")
 ANALYSIS_MAX_TOKENS = int(os.getenv("ANALYSIS_MAX_TOKENS", "600"))
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
 allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
 if not allowed_origins:
@@ -82,6 +91,14 @@ init_db(app)
 
 def get_default_user():
     """Return a single local profile used by the small-scale deployment."""
+    user_id = session.get("user_id")
+    if user_id:
+        user = User.query.get(user_id)
+        if user:
+            return user
+        session.pop("user_id", None)
+        session.pop("auth_provider", None)
+
     user = User.query.filter_by(email="local@internbuddy.app").first()
     if not user:
         user = User(
@@ -92,6 +109,89 @@ def get_default_user():
         db.session.add(user)
         db.session.commit()
     return user
+
+
+def serialize_user(user):
+    if not user:
+        return None
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "avatar_url": user.avatar_url,
+        "provider": user.provider,
+        "has_resume": bool(user.resume_path),
+    }
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def auth_me():
+    user_id = session.get("user_id")
+    user = User.query.get(user_id) if user_id else None
+    if not user_id or not user:
+        return jsonify({"authenticated": False, "user": None})
+
+    return jsonify({"authenticated": True, "user": serialize_user(user)})
+
+
+@app.route("/api/auth/google", methods=["POST"])
+def auth_google():
+    data = request.get_json(silent=True) or {}
+    credential = (data.get("credential") or "").strip()
+
+    if not credential:
+        return jsonify({"success": False, "error": "GOOGLE_CREDENTIAL_REQUIRED", "message": "Google credential is required"}), 400
+
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"success": False, "error": "GOOGLE_CLIENT_ID_MISSING", "message": "Google sign-in is not configured on the backend"}), 500
+
+    try:
+        id_info = google_id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            audience=GOOGLE_CLIENT_ID,
+        )
+    except ValueError:
+        return jsonify({"success": False, "error": "INVALID_GOOGLE_TOKEN", "message": "Google sign-in failed"}), 401
+    except Exception as exc:
+        logger.warning("Google sign-in verification failed: %s", exc)
+        return jsonify({"success": False, "error": "GOOGLE_AUTH_ERROR", "message": "Google sign-in failed"}), 401
+
+    email = (id_info.get("email") or "").strip().lower()
+    if not email or not id_info.get("email_verified"):
+        return jsonify({"success": False, "error": "UNVERIFIED_GOOGLE_EMAIL", "message": "Google account email is not verified"}), 401
+
+    name = (id_info.get("name") or email.split("@")[0]).strip()
+    picture = (id_info.get("picture") or "").strip() or None
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(
+            email=email,
+            name=name,
+            avatar_url=picture,
+            provider="google",
+        )
+        db.session.add(user)
+    else:
+        user.name = name or user.name
+        user.avatar_url = picture or user.avatar_url
+        user.provider = "google"
+
+    db.session.commit()
+
+    session.permanent = True
+    session["user_id"] = user.id
+    session["auth_provider"] = "google"
+
+    return jsonify({"success": True, "user": serialize_user(user)})
+
+
+@app.route("/api/auth/logout", methods=["POST"])
+def auth_logout():
+    session.clear()
+    return jsonify({"success": True})
 
 
 def is_valid_http_url(value):
@@ -1004,6 +1104,11 @@ def summarize_internship():
         if not is_valid_http_url(user_input):
             return jsonify({"error": "Provide a valid URL starting with http:// or https://"}), 400
 
+        if not is_allowed_internship_url(user_input):
+            return jsonify({
+                "error": "Unsupported or private internship URL. Use a public internship site and avoid localhost/private IPs."
+            }), 400
+
         existing = Internship.query.filter_by(source_url=user_input).first()
         if existing:
             summary = build_summary_response({}, existing, input_type)
@@ -1079,6 +1184,11 @@ def submit_internship():
 
     if not is_valid_http_url(url):
         return jsonify({'error': 'Provide a valid URL starting with http:// or https://'}), 400
+
+    if not is_allowed_internship_url(url):
+        return jsonify({
+            'error': 'Unsupported or private internship URL. Use a public internship site and avoid localhost/private IPs.'
+        }), 400
 
     api_key = os.getenv("NVIDIA_API_KEY")
     if not api_key:

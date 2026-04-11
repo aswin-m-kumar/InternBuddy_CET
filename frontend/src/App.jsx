@@ -1,6 +1,9 @@
 import { ShaderGradientCanvas, ShaderGradient } from "@shadergradient/react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import { LiquidGlassCard } from "./components/LiquidGlassCard";
+import { Auth } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
+import { Landing } from "./pages/Landing";
 
 function App() {
   return (
@@ -57,20 +60,39 @@ function App() {
       <div className="pointer-events-none absolute -right-12 bottom-8 z-[3] h-64 w-64 rounded-full bg-[#8d96a6]/30 blur-3xl" />
 
       {/* Main Content */}
-      <div className="relative z-10 flex min-h-[100svh] items-start justify-center p-3 sm:items-center sm:p-8">
-        <LiquidGlassCard
-          draggable={false}
-          expandable={false}
-          width="100%"
-          height="auto"
-          className="max-w-6xl overflow-hidden"
-          blurIntensity="xl"
-          borderRadius="32px"
-          glowIntensity="xl"
-          shadowIntensity="xl"
-        >
-          <Dashboard />
-        </LiquidGlassCard>
+      <div className="relative z-10 min-h-[100svh]">
+        <Routes>
+          <Route path="/" element={<Landing />} />
+          <Route
+            path="/auth"
+            element={
+              <div className="flex min-h-[100svh] items-center justify-center p-3 sm:p-8">
+                <Auth />
+              </div>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <div className="flex min-h-[100svh] items-start justify-center p-3 sm:items-center sm:p-8">
+                <LiquidGlassCard
+                  draggable={false}
+                  expandable={false}
+                  width="100%"
+                  height="auto"
+                  className="max-w-6xl overflow-hidden"
+                  blurIntensity="xl"
+                  borderRadius="32px"
+                  glowIntensity="xl"
+                  shadowIntensity="xl"
+                >
+                  <Dashboard />
+                </LiquidGlassCard>
+              </div>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </div>
     </div>
   );
