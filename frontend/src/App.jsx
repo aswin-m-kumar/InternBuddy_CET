@@ -4,7 +4,7 @@ import { Dashboard } from "./pages/Dashboard";
 
 function App() {
   return (
-    <div className="relative min-h-[100svh] w-screen overflow-hidden bg-[#d9dde3]">
+    <div className="relative min-h-[100svh] w-full overflow-x-hidden bg-[#d9dde3]">
       {/* Background */}
       <div className="absolute inset-0 z-0">
         <ShaderGradientCanvas
@@ -57,7 +57,7 @@ function App() {
       <div className="pointer-events-none absolute -right-12 bottom-8 z-[3] h-64 w-64 rounded-full bg-[#8d96a6]/30 blur-3xl" />
 
       {/* Main Content */}
-      <div className="absolute inset-0 z-10 flex items-center justify-center p-4 sm:p-8">
+      <div className="relative z-10 flex min-h-[100svh] items-start justify-center p-3 sm:items-center sm:p-8">
         <LiquidGlassCard
           draggable={false}
           expandable={false}
