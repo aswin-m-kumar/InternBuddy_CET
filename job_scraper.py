@@ -21,7 +21,8 @@ UPLOAD_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 UPLOAD_PDF_EXTENSIONS = {"pdf"}
 OCR_API_URL = "https://api.ocr.space/parse/image"
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
-SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "meta/llama-3.1-8b-instruct")
+SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "llama-3.1-8b-instant")
+SUMMARIZATION_MAX_TOKENS = int(os.getenv("SUMMARIZATION_MAX_TOKENS", "400"))
 PLACEHOLDER_VALUES = {"unknown", "unknown position", "unknown company", "n/a", "na", "none", "null", "not specified"}
 STOPWORDS = {
     "the", "and", "for", "with", "this", "that", "from", "into", "will", "are", "you",
@@ -201,7 +202,7 @@ def extract_job_details_from_text(text, api_key):
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=400,
+            max_tokens=SUMMARIZATION_MAX_TOKENS,
             temperature=0.1
         )
 
@@ -425,32 +426,42 @@ def save_internship(details, source='linkedin'):
     """Save or update internship in database."""
     existing = Internship.query.filter_by(source_url=details.get('source_url')).first()
 
+    title = str(details.get('title', '') or '')[:255]
+    company = str(details.get('company', '') or '')[:255]
+    location = str(details.get('location', '') or '')[:255]
+    duration = str(details.get('duration', '') or '')[:255]
+    stipend = str(details.get('stipend', '') or '')[:500]
+    deadline = str(details.get('deadline', '') or '')[:255]
+    source_value = str(source or '')[:50]
+
     if existing:
         # Update existing
-        existing.title = details.get('title', existing.title)
-        existing.company = details.get('company', existing.company)
+        existing.title = title or existing.title
+        existing.company = company or existing.company
         existing.description = details.get('description', existing.description)
         existing.eligibility = details.get('eligibility', existing.eligibility)
         existing.required_skills = details.get('required_skills', existing.required_skills)
-        existing.location = details.get('location', existing.location)
-        existing.duration = details.get('duration', existing.duration)
-        existing.stipend = details.get('stipend', existing.stipend)
+        existing.location = location or existing.location
+        existing.duration = duration or existing.duration
+        existing.stipend = stipend or existing.stipend
+        existing.deadline = deadline or existing.deadline
         existing.is_active = True
         db.session.commit()
         return existing
     else:
         # Create new
         internship = Internship(
-            title=details.get('title', 'Unknown Position'),
-            company=details.get('company', 'Unknown Company'),
-            source=source,
+            title=title or 'Unknown Position',
+            company=company or 'Unknown Company',
+            source=source_value,
             source_url=details.get('source_url'),
             description=details.get('description'),
             eligibility=details.get('eligibility'),
             required_skills=details.get('required_skills', []),
-            location=details.get('location'),
-            duration=details.get('duration'),
-            stipend=details.get('stipend'),
+            location=location,
+            duration=duration,
+            stipend=stipend,
+            deadline=deadline,
             raw_data=details.get('raw_data')
         )
         db.session.add(internship)

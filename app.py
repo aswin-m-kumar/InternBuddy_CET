@@ -11,6 +11,7 @@ from sqlalchemy import func, case
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_migrate import Migrate
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
@@ -47,7 +48,8 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 
 SUMMARY_UPLOAD_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "pdf"}
 MAX_SUMMARY_UPLOAD_SIZE = 8 * 1024 * 1024
-ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "meta/llama-3.1-70b-instruct")
+ANALYSIS_MODEL = os.getenv("ANALYSIS_MODEL", "llama-3.3-70b-versatile")
+ANALYSIS_MAX_TOKENS = int(os.getenv("ANALYSIS_MAX_TOKENS", "600"))
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
 
 allowed_origins = [origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()]
@@ -72,6 +74,8 @@ limiter = Limiter(
     default_limits=["20 per hour"],
     storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://")
 )
+
+migrate = Migrate(app, db)
 
 init_db(app)
 
@@ -499,7 +503,7 @@ def analyze_resume_compatibility(resume_text, internship_summary, api_key):
             ],
             temperature=0.2,
             top_p=0.7,
-            max_tokens=700,
+            max_tokens=ANALYSIS_MAX_TOKENS,
         )
     except Exception as exc:
         logger.error("Compatibility analysis request failed: %s", exc)
