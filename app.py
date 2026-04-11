@@ -123,6 +123,29 @@ def clean_placeholder_value(value):
     return value
 
 
+def ensure_required_internship_fields(details, fallback_source_url=None):
+    """Normalize extracted details so DB-required fields are always present."""
+    if not isinstance(details, dict):
+        return {}
+
+    normalized = dict(details)
+
+    if not clean_placeholder_value(normalized.get("title")):
+        normalized["title"] = "Unknown Position"
+
+    if not clean_placeholder_value(normalized.get("company")):
+        normalized["company"] = "Unknown Company"
+
+    source_url = normalized.get("source_url")
+    if not (isinstance(source_url, str) and source_url.strip()):
+        source_url = fallback_source_url
+
+    if source_url:
+        normalized["source_url"] = source_url
+
+    return normalized
+
+
 def api_error(error_code, message, status_code=400):
     return jsonify({"success": False, "error": error_code, "message": message}), status_code
 
@@ -254,8 +277,15 @@ def summarize_internship_from_form(api_key):
             return {}, existing, summary, [], usage_meta, None
 
         details = scrape_linkedin_job(internship_url, api_key)
-        if not details or "error" in details:
-            error_message = details.get("error") if details else "Could not summarize this internship URL"
+        if not isinstance(details, dict):
+            return None, None, None, None, usage_meta, api_error(
+                "SUMMARIZATION_FAILED",
+                "Could not summarize this internship URL",
+                422,
+            )
+
+        if "error" in details:
+            error_message = str(details.get("error") or "Could not summarize this internship URL")
             lowered = error_message.lower()
             if "blocked" in lowered or "anti-bot" in lowered:
                 return None, None, None, None, usage_meta, api_error(
@@ -350,15 +380,9 @@ def summarize_internship_from_form(api_key):
             400,
         )
 
-    if not details.get("source_url"):
-        fallback_seed = raw_text or internship_url or "internship-input"
-        details["source_url"] = build_text_submission_source(fallback_seed)
-
-    if not clean_placeholder_value(details.get("title")):
-        details["title"] = "Unknown Position"
-
-    if not clean_placeholder_value(details.get("company")):
-        details["company"] = "Unknown Company"
+    fallback_seed = raw_text or internship_url or "internship-input"
+    fallback_source = build_text_submission_source(fallback_seed)
+    details = ensure_required_internship_fields(details, fallback_source_url=fallback_source)
 
     internship = save_internship(details, source=source)
     summary = build_summary_response(details, internship, input_type)
@@ -985,8 +1009,11 @@ def summarize_internship():
             })
 
         details = scrape_linkedin_job(user_input, api_key)
-        if not details or "error" in details:
-            error_message = details.get("error") if details else "Could not summarize this internship URL"
+        if not isinstance(details, dict):
+            return jsonify({"error": "Could not summarize this internship URL"}), 422
+
+        if "error" in details:
+            error_message = str(details.get("error") or "Could not summarize this internship URL")
             lower_error = error_message.lower()
 
             if "blocked" in lower_error or "anti-bot" in lower_error:
@@ -996,6 +1023,8 @@ def summarize_internship():
                 }), 422
 
             return jsonify({"error": error_message}), 422
+
+        details = ensure_required_internship_fields(details, fallback_source_url=user_input)
     else:
         details = extract_job_details_from_text(user_input, api_key)
         if not details:
@@ -1006,6 +1035,8 @@ def summarize_internship():
         details["source_url"] = build_text_submission_source(user_input)
         details["raw_data"] = user_input[:10000]
         source = "manual_text"
+
+        details = ensure_required_internship_fields(details, fallback_source_url=details["source_url"])
 
     if not details.get("source_url"):
         details["source_url"] = build_text_submission_source(user_input)
@@ -1042,15 +1073,19 @@ def submit_internship():
         return jsonify({'error': 'Backend configuration error'}), 500
 
     details = scrape_linkedin_job(url, api_key)
+    if not isinstance(details, dict):
+        return jsonify({'error': 'Could not summarize this internship URL'}), 422
 
     if 'error' in details:
-        message = details['error']
+        message = str(details.get('error') or 'Could not summarize this internship URL')
         if 'blocked' in message.lower() or 'anti-bot' in message.lower():
             return jsonify({
                 'error': 'LinkedIn blocked automatic scraping. Paste internship details text instead.',
                 'error_code': 'LINKEDIN_BLOCKED'
             }), 422
         return jsonify({'error': message}), 422
+
+    details = ensure_required_internship_fields(details, fallback_source_url=url)
 
     internship = save_internship(details, source='manual')
 
