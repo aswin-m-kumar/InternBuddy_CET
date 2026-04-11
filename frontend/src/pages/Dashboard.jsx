@@ -252,13 +252,11 @@ export function Dashboard() {
         formData.append("file", uploadFile);
         response = await fetch(`${API_BASE}/api/internships/summarize-file`, {
           method: "POST",
-          credentials: "include",
           body: formData,
         });
       } else {
         response = await fetch(`${API_BASE}/api/internships/summarize`, {
           method: "POST",
-          credentials: "include",
           headers: {
             "Content-Type": "application/json",
           },
@@ -435,7 +433,6 @@ export function Dashboard() {
 
       const response = await fetch(`${API_BASE}/api/resume/analyze`, {
         method: "POST",
-        credentials: "include",
         body: formData,
       });
 

@@ -39,9 +39,9 @@ class Internship(db.Model):
     eligibility = db.Column(db.Text)  # Parsed eligibility criteria
     required_skills = db.Column(db.JSON)  # List of required skills
     location = db.Column(db.String(255))
-    duration = db.Column(db.String(255))
-    stipend = db.Column(db.String(500))
-    deadline = db.Column(db.String(255))
+    duration = db.Column(db.String(100))
+    stipend = db.Column(db.String(100))
+    deadline = db.Column(db.DateTime)
     posted_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     # Metadata

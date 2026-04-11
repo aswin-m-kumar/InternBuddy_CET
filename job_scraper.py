@@ -2,8 +2,6 @@ import os
 import re
 import hashlib
 import logging
-import ipaddress
-import socket
 from io import BytesIO
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urljoin
@@ -23,13 +21,7 @@ UPLOAD_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 UPLOAD_PDF_EXTENSIONS = {"pdf"}
 OCR_API_URL = "https://api.ocr.space/parse/image"
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
-SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "llama-3.1-8b-instant")
-SUMMARIZATION_MAX_TOKENS = int(os.getenv("SUMMARIZATION_MAX_TOKENS", "400"))
-ALLOWED_INTERNSHIP_DOMAINS = {
-    domain.strip().lower()
-    for domain in os.getenv("ALLOWED_INTERNSHIP_DOMAINS", "").split(",")
-    if domain.strip()
-}
+SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "meta/llama-3.1-8b-instruct")
 PLACEHOLDER_VALUES = {"unknown", "unknown position", "unknown company", "n/a", "na", "none", "null", "not specified"}
 STOPWORDS = {
     "the", "and", "for", "with", "this", "that", "from", "into", "will", "are", "you",
@@ -76,61 +68,6 @@ def is_placeholder(value):
     if value is None:
         return True
     return normalize_text(str(value)) in PLACEHOLDER_VALUES
-
-
-def _hostname_matches_allowed_domain(hostname, allowed_domain):
-    hostname = (hostname or "").lower()
-    allowed_domain = (allowed_domain or "").lower()
-    return hostname == allowed_domain or hostname.endswith(f".{allowed_domain}")
-
-
-def _is_private_or_reserved_host(hostname):
-    hostname = (hostname or "").strip().lower()
-    if not hostname:
-        return True
-
-    if hostname in {"localhost", "127.0.0.1", "::1"}:
-        return True
-
-    try:
-        ip_address = ipaddress.ip_address(hostname)
-        return any((ip_address.is_private, ip_address.is_loopback, ip_address.is_link_local, ip_address.is_reserved, ip_address.is_multicast))
-    except ValueError:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        return False
-
-    for info in infos:
-        address = info[4][0]
-        try:
-            ip_address = ipaddress.ip_address(address)
-        except ValueError:
-            continue
-        if any((ip_address.is_private, ip_address.is_loopback, ip_address.is_link_local, ip_address.is_reserved, ip_address.is_multicast)):
-            return True
-
-    return False
-
-
-def is_allowed_internship_url(value):
-    if not isinstance(value, str) or not value.strip():
-        return False
-
-    parsed = urlparse(value.strip())
-    if parsed.scheme not in ALLOWED_SCHEMES or not parsed.hostname:
-        return False
-
-    hostname = parsed.hostname.lower()
-    if _is_private_or_reserved_host(hostname):
-        return False
-
-    if ALLOWED_INTERNSHIP_DOMAINS:
-        return any(_hostname_matches_allowed_domain(hostname, domain) for domain in ALLOWED_INTERNSHIP_DOMAINS)
-
-    return True
 
 
 def best_effort_excerpt(source_text, max_chars=320):
@@ -264,7 +201,7 @@ def extract_job_details_from_text(text, api_key):
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=SUMMARIZATION_MAX_TOKENS,
+            max_tokens=400,
             temperature=0.1
         )
 
@@ -284,11 +221,6 @@ def extract_job_details_from_text(text, api_key):
 
 def scrape_linkedin_job(url, api_key):
     """Scrape a LinkedIn job posting (with anti-bot handling)."""
-    if not is_allowed_internship_url(url):
-        return {
-            'error': 'Unsupported internship domain. Add the domain to ALLOWED_INTERNSHIP_DOMAINS or use an approved URL.'
-        }
-
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml',
@@ -296,37 +228,10 @@ def scrape_linkedin_job(url, api_key):
 
     try:
         scraper = cloudscraper.create_scraper()
-        current_url = url
-        response = None
-
-        for _ in range(MAX_REDIRECTS + 1):
-            response = scraper.get(current_url, headers=headers, timeout=REQUEST_TIMEOUT, allow_redirects=False)
-
-            if response.status_code in {301, 302, 303, 307, 308}:
-                next_location = response.headers.get('Location')
-                if not next_location:
-                    return {'error': 'Redirect response missing location header'}
-
-                current_url = urljoin(current_url, next_location)
-                if not is_allowed_internship_url(current_url):
-                    return {'error': 'Redirected to a non-allowed internship domain'}
-                continue
-
-            break
-        else:
-            return {'error': 'Too many redirects while fetching internship page'}
-
-        if response is None:
-            return {'error': 'Failed to fetch internship page'}
-
-        if not is_allowed_internship_url(current_url):
-            return {'error': 'Resolved internship URL is not allowed'}
+        response = scraper.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
         if response.status_code == 403:
             return {'error': 'LinkedIn blocked the request (anti-bot protection)'}
-
-        if response.status_code >= 400:
-            return {'error': f'Failed to fetch internship page (HTTP {response.status_code})'}
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -341,7 +246,7 @@ def scrape_linkedin_job(url, api_key):
 
         details = extract_job_details_from_text(text, api_key)
         if details:
-            details['source_url'] = current_url
+            details['source_url'] = url
             details['raw_data'] = text
             return details
 
@@ -432,10 +337,20 @@ def compress_image_for_ocr(file_bytes, max_bytes=1024 * 1024):
 
 
 def extract_text_from_image_bytes(file_bytes, filename, ocr_api_key=None):
-    api_key = (ocr_api_key or os.getenv("OCR_SPACE_API_KEY") or "").strip()
+    api_key = ocr_api_key or os.getenv("OCR_SPACE_API_KEY") or "helloworld"
     warnings = []
-    if not api_key:
-        return {"error": "OCR_SPACE_API_KEY is required for poster/image uploads", "warnings": warnings}
+    if api_key == "helloworld":
+        warnings.append("Using OCR demo key; accuracy and rate limits may be restricted")
+        if len(file_bytes) > 1024 * 1024:
+            compressed_bytes, compressed_ok = compress_image_for_ocr(file_bytes)
+            if compressed_bytes and len(compressed_bytes) <= 1024 * 1024:
+                file_bytes = compressed_bytes
+                warnings.append("Compressed image for OCR demo key size limit")
+            elif compressed_ok:
+                file_bytes = compressed_bytes
+                warnings.append("Compressed image for OCR demo key size limit")
+            else:
+                warnings.append("Could not compress image under OCR demo size limit")
 
     payload = {
         "apikey": api_key,
@@ -510,42 +425,32 @@ def save_internship(details, source='linkedin'):
     """Save or update internship in database."""
     existing = Internship.query.filter_by(source_url=details.get('source_url')).first()
 
-    title = str(details.get('title', '') or '')[:255]
-    company = str(details.get('company', '') or '')[:255]
-    location = str(details.get('location', '') or '')[:255]
-    duration = str(details.get('duration', '') or '')[:255]
-    stipend = str(details.get('stipend', '') or '')[:500]
-    deadline = str(details.get('deadline', '') or '')[:255]
-    source_value = str(source or '')[:50]
-
     if existing:
         # Update existing
-        existing.title = title or existing.title
-        existing.company = company or existing.company
+        existing.title = details.get('title', existing.title)
+        existing.company = details.get('company', existing.company)
         existing.description = details.get('description', existing.description)
         existing.eligibility = details.get('eligibility', existing.eligibility)
         existing.required_skills = details.get('required_skills', existing.required_skills)
-        existing.location = location or existing.location
-        existing.duration = duration or existing.duration
-        existing.stipend = stipend or existing.stipend
-        existing.deadline = deadline or existing.deadline
+        existing.location = details.get('location', existing.location)
+        existing.duration = details.get('duration', existing.duration)
+        existing.stipend = details.get('stipend', existing.stipend)
         existing.is_active = True
         db.session.commit()
         return existing
     else:
         # Create new
         internship = Internship(
-            title=title or 'Unknown Position',
-            company=company or 'Unknown Company',
-            source=source_value,
+            title=details.get('title', 'Unknown Position'),
+            company=details.get('company', 'Unknown Company'),
+            source=source,
             source_url=details.get('source_url'),
             description=details.get('description'),
             eligibility=details.get('eligibility'),
             required_skills=details.get('required_skills', []),
-            location=location,
-            duration=duration,
-            stipend=stipend,
-            deadline=deadline,
+            location=details.get('location'),
+            duration=details.get('duration'),
+            stipend=details.get('stipend'),
             raw_data=details.get('raw_data')
         )
         db.session.add(internship)
