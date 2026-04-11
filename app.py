@@ -544,8 +544,16 @@ def build_summary_response(details, internship, input_type):
     if not (isinstance(source_url, str) and is_valid_http_url(source_url)):
         source_url = None
 
-    title = clean_placeholder_value(details.get("title")) or clean_placeholder_value(internship.title)
-    company = clean_placeholder_value(details.get("company")) or clean_placeholder_value(internship.company)
+    title = (
+        clean_placeholder_value(details.get("title"))
+        or clean_placeholder_value(internship.title)
+        or "Unknown Position"
+    )
+    company = (
+        clean_placeholder_value(details.get("company"))
+        or clean_placeholder_value(internship.company)
+        or "Unknown Company"
+    )
 
     role_summary = (
         clean_placeholder_value(details.get("description"))
