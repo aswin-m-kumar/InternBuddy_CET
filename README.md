@@ -1,74 +1,80 @@
 # InternBuddy CET
 
-**InternBuddy CET** is an AI-powered internship discovery platform built for students of College of Engineering Trivandrum. It aggregates internships from multiple sources (LinkedIn, Internship Cell posters, and other job boards), parses your resume to understand your skills and eligibility, and provides personalized recommendations with match scores.
+InternBuddy CET is an AI-powered internship assistant for students. It supports:
 
-Built to solve the student pain point: manually searching multiple platforms, wondering if you're eligible, and missing deadlines.
+- Internship summarization from URL, pasted text, or poster/PDF upload
+- Resume-to-internship compatibility analysis with skill gap insights
+- Deadline checks (expired, expiring soon, rolling/no-deadline hints)
+- Cost-conscious operation with caching, request limits, and usage logging
 
-Phase 2 of this repository is a **summarizer-first experience**: students paste an internship link, raw details, or upload posters/PDFs to receive a structured summary instantly.
+The deployment architecture is split:
 
----
-
-## Features
-
-- **Internship Summarizer (URL/Text/Upload)** — Paste an internship link, raw details, or upload poster files for structured output
-- **Structured Output** — Extracts role summary, skills, eligibility, stipend, location, and duration
-- **Poster OCR Pipeline** — Supports PNG/JPG/WEBP/PDF uploads and extracts readable text before summarization
-- **Persistent Storage** — Summaries are stored in the backend database for reuse
-- **LinkedIn Fallback Guidance** — If anti-bot protection blocks scraping, app prompts users to paste text details
-- **Resume + Matching Modules Kept** — Existing profile/matching code remains in repo for later phases
-
----
+- Frontend: GitHub Pages (React + Vite)
+- Backend: Vercel (Flask API)
 
 ## Tech Stack
 
-| Layer       | Stack                                                                              |
-| ----------- | ---------------------------------------------------------------------------------- |
-| Frontend    | React 19, Vite 8, Tailwind CSS, Framer Motion, React Router, @shadergradient/react |
-| Backend     | Python, Flask, Flask-SQLAlchemy                                                    |
-| AI          | NVIDIA NIM — `meta/llama-3.1-70b-instruct`                                         |
-| PDF Parsing | pdfplumber, PyPDF2                                                                 |
-| Database    | SQLite (dev) / PostgreSQL (prod)                                                   |
-| Deployment  | GitHub Pages (frontend) + Vercel (backend)                                         |
+- Frontend: React 19, Vite 8, Tailwind CSS
+- Backend: Flask, Flask-SQLAlchemy, Flask-Limiter
+- AI: NVIDIA NIM via OpenAI-compatible API
+- File extraction: pdfplumber, PyPDF2, OCR.Space, Pillow
+- Database: SQLite (local), PostgreSQL/Neon (production)
 
----
+## Step-by-Step Local Setup
 
-## Local Setup
+Prerequisites:
 
-**Prerequisites:** Python 3.10+, Node.js 20+
+- Python 3.10+
+- Node.js 20+
+- npm 10+
 
-### 1. Clone
+1. Clone and enter the project
 
 ```bash
 git clone https://github.com/aswin-m-kumar/InternBuddy_CET.git
 cd InternBuddy_CET
 ```
 
-### 2. Backend
+2. Create and activate Python environment
 
 ```bash
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+python -m venv .venv
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+# macOS/Linux
+# source .venv/bin/activate
+```
+
+3. Install backend dependencies
+
+```bash
 pip install -r requirements.txt
 ```
 
-Create a `.env` file at the project root (see `.env.example`):
+4. Create root `.env` from `.env.example`
 
 ```env
 SECRET_KEY=dev-secret-key
 DATABASE_URL=sqlite:///internbuddy.db
+PORT=5000
+ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 NVIDIA_API_KEY=your-nvidia-api-key
-ALLOWED_ORIGINS=http://localhost:5173
+OCR_SPACE_API_KEY=your-ocr-space-api-key
+LLM_BASE_URL=https://integrate.api.nvidia.com/v1
+SUMMARIZATION_MODEL=meta/llama-3.1-8b-instruct
+ANALYSIS_MODEL=meta/llama-3.1-70b-instruct
+ADMIN_KEY=replace-with-a-strong-random-key
 ```
 
-Run the backend:
+5. Start backend
 
 ```bash
 python app.py
 ```
 
-Backend will be available at `http://127.0.0.1:5000`.
+Backend runs at `http://127.0.0.1:5000`.
 
-### 3. Frontend
+6. Install and run frontend
 
 ```bash
 cd frontend
@@ -76,118 +82,103 @@ npm install
 npm run dev
 ```
 
-The frontend auto-detects localhost and routes API calls to `http://127.0.0.1:5000`.
+Frontend runs at `http://localhost:5173` and calls local backend automatically.
 
----
+## Step-by-Step Production Deployment
 
-## Deployment
+### A) Backend on Vercel
 
-### Frontend — GitHub Pages
-
-The included GitHub Actions workflow (`.github/workflows/deploy.yml`) builds the Vite app and deploys `frontend/dist` to GitHub Pages.
-
-Set this GitHub repository secret for production builds:
-
-- `VITE_API_URL=https://your-vercel-backend.vercel.app`
-
-> Note: Update `vite.config.js` `base: '/InternBuddy_CET/'` to match your repo name.
-
-### Backend — Vercel
-
-Deploy the Flask API to [Vercel](https://vercel.com):
-
-1. Import this repository in Vercel
+1. Import repository into Vercel
 2. Keep root directory as `.`
-3. Vercel uses `vercel.json` and `api/index.py` to route requests into Flask
-4. Add environment variables from `.env.example`
-5. Set `DATABASE_URL` to PostgreSQL (Vercel Postgres, Neon, Supabase, etc.)
+3. Ensure `vercel.json` and `api/index.py` are present (already in repo)
+4. Add environment variables in Vercel Project Settings
+5. Set `DATABASE_URL` to a PostgreSQL instance (Neon recommended)
+6. Deploy and copy backend URL, for example:
+   `https://intern-buddy-cet.vercel.app`
 
-Minimum production variables:
+Recommended backend environment variables:
 
 - `SECRET_KEY`
 - `DATABASE_URL`
 - `NVIDIA_API_KEY`
-- `OCR_SPACE_API_KEY` (optional but recommended for higher OCR reliability)
+- `OCR_SPACE_API_KEY`
 - `ALLOWED_ORIGINS=https://aswin-m-kumar.github.io`
+- `SUMMARIZATION_MODEL`
+- `ANALYSIS_MODEL`
+- `ADMIN_KEY`
 
----
+### B) Frontend on GitHub Pages
 
-## Project Structure
+1. In GitHub repo, add secret `VITE_API_URL` with your Vercel backend URL
+2. Ensure Pages is enabled for GitHub Actions
+3. Push to the deployment branch used by `.github/workflows/deploy.yml`
+4. Wait for workflow completion and open the Pages URL
 
+Important:
+
+- `frontend/vite.config.js` base path must match repository name (`/InternBuddy_CET/`)
+- `ALLOWED_ORIGINS` on backend must include your GitHub Pages origin
+
+## Environment Variables Reference
+
+Root backend variables (`.env`):
+
+- `SECRET_KEY`: Flask secret key
+- `DATABASE_URL`: SQLite local or PostgreSQL production URL
+- `PORT`: backend port (local)
+- `ALLOWED_ORIGINS`: comma-separated CORS origins
+- `NVIDIA_API_KEY`: AI API key
+- `OCR_SPACE_API_KEY`: OCR API key
+- `LLM_BASE_URL`: AI base URL
+- `SUMMARIZATION_MODEL`: model for internship extraction/summarization
+- `ANALYSIS_MODEL`: model for resume compatibility analysis
+- `ADMIN_KEY`: protects usage stats endpoint
+
+Frontend build variable:
+
+- `VITE_API_URL`: production backend URL for GitHub Pages build
+
+## API Overview
+
+- `POST /api/internships/summarize` (URL/Text)
+- `POST /api/internships/summarize-file` (Poster/PDF upload)
+- `POST /api/resume/analyze` (Resume match analysis)
+- `GET /api/admin/usage` (admin usage metrics, requires `x-admin-key`)
+
+## Cost and Reliability Controls
+
+- URL summarization caching to avoid repeated model calls
+- Endpoint rate limiting with Flask-Limiter
+- Separate models for summarization vs deep analysis
+- Token-conscious prompts and normalized outputs
+- Usage logs persisted in database for monitoring
+
+## Troubleshooting
+
+- 401 from admin usage endpoint:
+  check `x-admin-key` header matches `ADMIN_KEY`.
+- CORS errors on production:
+  ensure `ALLOWED_ORIGINS` includes exact Pages origin.
+- OCR extraction weak or failing:
+  set your own `OCR_SPACE_API_KEY`; demo key has strict limits.
+- LinkedIn URL not parsed:
+  anti-bot pages can block scraping, use pasted details or upload mode.
+- Resume analyze disabled in UI:
+  confirm PDF uploaded and valid internship input selected.
+
+## Development Validation Checklist
+
+Run before pushing:
+
+```bash
+# backend
+python -m py_compile app.py job_scraper.py models.py resume_parser.py deadline_utils.py
+
+# frontend
+cd frontend
+npm run lint
+npm run build
 ```
-InternBuddy_CET/
-├── app.py                     # Flask app, routes, API endpoints
-├── api/
-│   └── index.py               # Vercel Python entrypoint
-├── models.py                  # SQLAlchemy models (User, Internship, Application)
-├── resume_parser.py           # PDF resume parsing with AI extraction
-├── job_scraper.py             # Multi-source internship scraping
-├── matcher.py                 # Eligibility scoring algorithm
-├── vercel.json                # Vercel routing/runtime config
-├── requirements.txt
-├── .env                       # (gitignored) Environment variables
-└── frontend/
-    ├── src/
-    │   ├── App.jsx                        # Main layout and dashboard shell
-    │   ├── pages/
-    │   │   └── Dashboard.jsx              # Main student dashboard
-    │   ├── components/
-    │   │   ├── InternshipCard.jsx         # Internship listing card
-    │   │   ├── ResumeUpload.jsx           # PDF upload + parsing status
-    │   │   └── LiquidGlassCard.jsx        # Glassmorphism card component
-    │   ├── lib/
-    │   │   └── auth.jsx                   # API base URL helper
-    │   └── index.css                      # Tailwind + custom styles
-    ├── vite.config.js
-    └── tailwind.config.js
-```
-
----
-
-## API Endpoints
-
-### Resume
-
-| Method | Endpoint             | Description                   |
-| ------ | -------------------- | ----------------------------- |
-| POST   | `/api/resume/upload` | Upload PDF resume             |
-| GET    | `/api/resume`        | Get parsed local profile data |
-
-### Internships
-
-| Method | Endpoint                          | Description                                   |
-| ------ | --------------------------------- | --------------------------------------------- |
-| POST   | `/api/internships/summarize`      | Summarize internship from URL or text         |
-| POST   | `/api/internships/summarize-file` | Summarize internship from uploaded poster/PDF |
-| GET    | `/api/internships`                | List internships (with search/filters)        |
-| GET    | `/api/internships/:id`            | Get internship details                        |
-| POST   | `/api/internships/:id/save`       | Save internship                               |
-| DELETE | `/api/internships/:id/save`       | Unsave internship                             |
-| GET    | `/api/saved`                      | List saved internships                        |
-| POST   | `/api/internships/submit`         | Submit LinkedIn URL for scraping              |
-
----
-
-## How It Works
-
-1. **Submit internship input** — Students can use URL mode, pasted-details mode, or poster/PDF upload mode
-2. **Text extraction and AI parsing** — Uploaded files pass through OCR/PDF extraction, then AI normalizes title, company, summary, skills, and eligibility
-3. **View instant summary** — Frontend renders concise cards for quick screening
-4. **Persist for reuse** — Parsed records are saved in the internship database
-5. **Fallback on blocked scraping** — If LinkedIn blocks, users are guided to paste details manually
-
----
-
-## Development Notes
-
-- **No Login Required:** This small-scale version uses a single local profile instead of student authentication.
-- **Database Migrations:** For SQLite, the database auto-creates on first run. For PostgreSQL production, use Alembic for migrations.
-- **LinkedIn Scraping:** LinkedIn has strong anti-bot protection. If blocked, API responds with guidance to paste raw internship details.
-- **Poster OCR Key:** Without `OCR_SPACE_API_KEY`, the demo OCR key applies strict limits, but the app now auto-compresses oversized images before OCR. Configure your own key for the most reliable Phase 2 uploads.
-- **Rate Limits:** Default is 20 requests/hour per IP globally and 10 requests/minute for both `/api/internships/summarize` and `/api/internships/summarize-file`.
-- **Resume & Matching Modules:** Still present in codebase but not the primary summarizer frontend flow.
-
----
 
 ## License
 

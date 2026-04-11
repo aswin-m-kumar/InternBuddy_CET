@@ -77,6 +77,17 @@ class Application(db.Model):
     __table_args__ = (db.UniqueConstraint('user_id', 'internship_id', name='unique_application'),)
 
 
+class UsageLog(db.Model):
+    __tablename__ = 'usage_logs'
+
+    id = db.Column(db.Integer, primary_key=True)
+    endpoint = db.Column(db.String(100), nullable=False, index=True)
+    model_used = db.Column(db.String(100))
+    tokens_estimate = db.Column(db.Integer, default=0)
+    cached = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+
 def init_db(app):
     db.init_app(app)
 

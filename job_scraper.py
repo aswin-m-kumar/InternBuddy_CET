@@ -20,6 +20,8 @@ ALLOWED_SCHEMES = ("http", "https")
 UPLOAD_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp"}
 UPLOAD_PDF_EXTENSIONS = {"pdf"}
 OCR_API_URL = "https://api.ocr.space/parse/image"
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://integrate.api.nvidia.com/v1")
+SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "meta/llama-3.1-8b-instruct")
 PLACEHOLDER_VALUES = {"unknown", "unknown position", "unknown company", "n/a", "na", "none", "null", "not specified"}
 STOPWORDS = {
     "the", "and", "for", "with", "this", "that", "from", "into", "will", "are", "you",
@@ -163,7 +165,7 @@ def ground_extracted_details(details, source_text):
 def extract_job_details_from_text(text, api_key):
     """Use AI to extract structured job details from raw text."""
     client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
+        base_url=LLM_BASE_URL,
         api_key=api_key
     )
 
@@ -186,12 +188,12 @@ def extract_job_details_from_text(text, api_key):
     }}
 
     Text to analyze:
-    {text[:6000]}
+    {text[:8000]}
     """
 
     try:
         response = client.chat.completions.create(
-            model="meta/llama-3.1-70b-instruct",
+            model=SUMMARIZATION_MODEL,
             messages=[
                 {
                     "role": "system",
@@ -199,8 +201,8 @@ def extract_job_details_from_text(text, api_key):
                 },
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=600,
-            temperature=0.0
+            max_tokens=400,
+            temperature=0.1
         )
 
         content = response.choices[0].message.content.strip()
