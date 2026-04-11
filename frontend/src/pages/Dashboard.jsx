@@ -201,14 +201,11 @@ export function Dashboard() {
               Internship Cell CET
             </p>
             <h1 className="text-3xl font-extrabold tracking-tight text-[#0f1115] sm:text-4xl">
-              InternBuddy Phase 2 Summarizer
+              InternBuddy
             </h1>
             <p className="mt-2 text-sm text-black/65">
               Submit internship links, text, or posters to get verified
               summaries with confidence scoring.
-            </p>
-            <p className="mt-1 text-xs text-black/50">
-              Built for Internship Cell CET by Aswin M Kumar
             </p>
           </div>
         </div>
@@ -459,6 +456,12 @@ export function Dashboard() {
           )}
         </section>
       </div>
+
+      <footer className="mt-6 border-t border-black/10 pt-4 text-center">
+        <p className="text-xs text-black/50">
+          Built for Internship Cell CET by Aswin M Kumar
+        </p>
+      </footer>
     </div>
   );
 }
