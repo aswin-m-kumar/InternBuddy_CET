@@ -284,14 +284,7 @@ export function Landing() {
 
     try {
       await new Promise((resolve) => setTimeout(resolve, 1100));
-
-      if (email.endsWith("@cetonline.ac.in")) {
-        setSignUpSuccess("Account created. Your CET account is ready to go.");
-      } else {
-        setSignUpSuccess(
-          "Account created. For Internship Cell notices, prefer your @cetonline.ac.in email.",
-        );
-      }
+      setSignUpSuccess("Account created successfully. You can now sign in.");
     } finally {
       setSignUpLoading(false);
     }
@@ -707,7 +700,7 @@ export function Landing() {
                           email: event.target.value,
                         }))
                       }
-                      placeholder="you@cetonline.ac.in"
+                      placeholder="you@example.com"
                       autoComplete="email"
                       className="mt-2 w-full rounded-xl border border-black/10 bg-white/80 px-4 py-3 text-sm text-[#111827] placeholder:text-[#1f2937]/60 focus:border-[#111827]/35 focus:outline-none"
                     />
@@ -834,7 +827,7 @@ export function Landing() {
                       htmlFor="signup-email"
                       className="text-sm font-semibold text-[#1f2937]"
                     >
-                      College Email
+                      Email
                     </label>
                     <input
                       id="signup-email"
@@ -846,13 +839,10 @@ export function Landing() {
                           email: event.target.value,
                         }))
                       }
-                      placeholder="you@cetonline.ac.in"
+                      placeholder="you@example.com"
                       autoComplete="email"
                       className="mt-2 w-full rounded-xl border border-black/10 bg-white/80 px-4 py-3 text-sm text-[#111827] placeholder:text-[#1f2937]/60 focus:border-[#111827]/35 focus:outline-none"
                     />
-                    <p className="mt-1 text-xs font-medium text-[#374151]/70">
-                      @cetonline.ac.in is preferred for Internship Cell updates.
-                    </p>
                   </div>
 
                   <div>

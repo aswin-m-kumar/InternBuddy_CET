@@ -108,7 +108,7 @@ export function Auth() {
           <form className="space-y-5" onSubmit={onSubmit}>
             <div className="space-y-1.5">
               <label className="ml-1 text-[10px] font-bold uppercase tracking-[0.05em] text-[#6d7c8a]">
-                Corporate Email
+                Email
               </label>
               <div className="relative">
                 <Mail className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[#6d7c8a]/80" />
@@ -118,7 +118,7 @@ export function Auth() {
                   onChange={(event) =>
                     setForm((prev) => ({ ...prev, email: event.target.value }))
                   }
-                  placeholder="name@company.com"
+                  placeholder="you@example.com"
                   className="w-full rounded-xl border border-black/10 bg-white/80 py-4 pr-4 pl-9 text-sm text-[#253440] placeholder:text-[#6d7c8a]/70 outline-none transition-all focus:border-[#6d7c8a]/40"
                 />
               </div>
