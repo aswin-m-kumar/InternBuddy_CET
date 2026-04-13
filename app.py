@@ -182,16 +182,29 @@ def serialize_user(user):
 def get_frontend_redirect_base():
     configured_origin = (os.getenv("FRONTEND_URL") or os.getenv("FRONTEND_ORIGIN") or "").strip()
     if configured_origin:
-        return configured_origin.rstrip("/")
+        candidate = configured_origin.rstrip("/")
+    else:
+        candidate = ""
 
-    if allowed_origins:
-        return allowed_origins[0].rstrip("/")
+    if not candidate and allowed_origins:
+        candidate = allowed_origins[0].rstrip("/")
 
-    origin_header = (request.headers.get("Origin") or "").strip()
-    if origin_header and is_valid_http_url(origin_header):
-        return origin_header.rstrip("/")
+    if not candidate:
+        origin_header = (request.headers.get("Origin") or "").strip()
+        if origin_header and is_valid_http_url(origin_header):
+            candidate = origin_header.rstrip("/")
 
-    return "http://localhost:5173"
+    if not candidate:
+        return "http://localhost:5173"
+
+    parsed = urlparse(candidate)
+    path = parsed.path.rstrip("/")
+
+    # GitHub Pages project sites require the repository path segment.
+    if parsed.netloc.endswith("github.io") and not path:
+        path = "/InternBuddy_CET"
+
+    return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
 def build_google_flow(state=None):
