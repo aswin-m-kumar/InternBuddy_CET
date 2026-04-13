@@ -67,12 +67,21 @@ export function Auth() {
     const errorMap = {
       access_denied: "Google sign-in was cancelled or denied.",
       missing_state: "Google sign-in session expired. Please try again.",
+      flow_init_failed: "Google sign-in setup failed on server.",
+      token_exchange_failed:
+        "Google sign-in token exchange failed. Check callback URL and client secret.",
+      userinfo_request_failed:
+        "Google sign-in failed while contacting Google profile service.",
       userinfo_failed: "Google sign-in failed while reading your profile.",
       missing_email: "Google account did not provide an email.",
+      persist_user_failed:
+        "Google sign-in succeeded but account save failed on server.",
       callback_failed: "Google sign-in callback failed. Please try again.",
     };
 
-    setError(errorMap[oauthError] || "Google sign-in failed. Please try again.");
+    setError(
+      errorMap[oauthError] || "Google sign-in failed. Please try again.",
+    );
   }, []);
 
   const onGoogleSignIn = () => {

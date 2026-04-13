@@ -222,6 +222,12 @@ def build_google_flow(state=None):
     if redirect_uri.startswith("http://localhost") or redirect_uri.startswith("http://127.0.0.1"):
         os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
+    google_scopes = [
+        "openid",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
+    ]
+
     client_config = {
         "web": {
             "client_id": client_id,
@@ -234,7 +240,7 @@ def build_google_flow(state=None):
 
     return Flow.from_client_config(
         client_config=client_config,
-        scopes=["openid", "email", "profile"],
+        scopes=google_scopes,
         state=state,
         redirect_uri=redirect_uri,
     )
@@ -822,26 +828,44 @@ def auth_google_callback():
 
     try:
         flow = build_google_flow(state=state)
-        flow.fetch_token(authorization_response=request.url)
+    except Exception as exc:
+        logger.error("Google OAuth callback flow init failed: %s", exc)
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#auth?oauth_error=flow_init_failed")
 
+    try:
+        flow.fetch_token(authorization_response=request.url)
+    except Exception as exc:
+        logger.error("Google OAuth token exchange failed: %s", exc)
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#auth?oauth_error=token_exchange_failed")
+
+    try:
         userinfo_response = http_requests.get(
             "https://openidconnect.googleapis.com/v1/userinfo",
             headers={"Authorization": f"Bearer {flow.credentials.token}"},
             timeout=10,
         )
+    except Exception as exc:
+        logger.error("Google OAuth userinfo request failed: %s", exc)
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#auth?oauth_error=userinfo_request_failed")
 
-        if not userinfo_response.ok:
-            logger.error("Google userinfo fetch failed: %s", userinfo_response.text)
-            return redirect(f"{frontend_base}/#auth?oauth_error=userinfo_failed")
+    if not userinfo_response.ok:
+        logger.error("Google userinfo fetch failed: %s", userinfo_response.text)
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#auth?oauth_error=userinfo_failed")
 
-        profile = userinfo_response.json()
-        email = (profile.get("email") or "").strip().lower()
-        if not email:
-            return redirect(f"{frontend_base}/#auth?oauth_error=missing_email")
+    profile = userinfo_response.json()
+    email = (profile.get("email") or "").strip().lower()
+    if not email:
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#auth?oauth_error=missing_email")
 
-        name = (profile.get("name") or email.split("@")[0]).strip()
-        avatar_url = (profile.get("picture") or "").strip() or None
+    name = (profile.get("name") or email.split("@")[0]).strip()
+    avatar_url = (profile.get("picture") or "").strip() or None
 
+    try:
         user = User.query.filter_by(email=email).first()
         if not user:
             user = User(
@@ -864,8 +888,10 @@ def auth_google_callback():
         session.pop("google_oauth_state", None)
         return redirect(f"{frontend_base}/#dashboard")
     except Exception as exc:
+        db.session.rollback()
         logger.error("Google OAuth callback failed: %s", exc)
-        return redirect(f"{frontend_base}/#auth?oauth_error=callback_failed")
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#auth?oauth_error=persist_user_failed")
 
 @app.route("/api/resume/upload", methods=["POST"])
 def upload_resume():
