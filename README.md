@@ -141,33 +141,102 @@ Frontend build variable:
 
 - `VITE_API_URL`: production backend URL for GitHub Pages build
 
+## OAuth & CSRF Flow (For Developers)
+
+### Session & Token Lifecycle
+
+1. User visits app → `App.jsx` calls `getAuthSession()` → includes CSRF token in response
+2. All subsequent mutating requests use `apiFetch()` helper which:
+   - Caches CSRF token from auth response
+   - Injects `X-CSRF-Token` header for POST/PUT/DELETE
+   - Includes `credentials: include` for session cookie
+3. On logout → `clearAuthCaches()` removes cached token → user redirected to `/api/auth/signin`
+4. On sign-in/signup success → new CSRF token generated server-side and returned
+
+### Google OAuth
+
+- User clicks "Sign in with Google" → redirects to `/api/auth/google/start`
+- Backend validates Google `id_token` and creates/updates user
+- Session established server-side with CSRF token
+- User redirected to `/#dashboard` on success or `/#auth?oauth_error=...` on failure
+
 ## API Overview
 
-- `POST /api/internships/summarize` (URL/Text)
-- `POST /api/internships/summarize-file` (Poster/PDF upload)
-- `POST /api/resume/analyze` (Resume match analysis)
-- `GET /api/admin/usage` (admin usage metrics, requires `x-admin-key`)
+### Public Endpoints
+
+- `GET /api/auth/csrf` — Fetch CSRF token for authenticated sessions
+- `POST /api/auth/signup` — Create new local account
+- `POST /api/auth/signin` — Sign in with email and password
+- `POST /api/auth/signout` — Clear session and sign out
+- `GET /api/auth/me` — Check authentication status and get CSRF token
+- `GET /api/auth/google/start` — Initiate Google OAuth flow
+- `GET /api/auth/google/callback` — Google OAuth callback handler
+
+### Protected Endpoints (require authentication)
+
+- `POST /api/internships/summarize` (URL/Text summarization)
+- `POST /api/internships/summarize-file` (Poster/PDF upload and summarization)
+- `POST /api/resume/analyze` (Resume-to-internship match analysis)
+- `GET /api/internships` (list internships with eligibility scoring)
+- `GET /api/internships/<id>` (get single internship details)
+- `POST /api/internships/<id>/save` (save internship to collection)
+- `DELETE /api/internships/<id>/save` (unsave internship)
+- `GET /api/saved` (list saved internships)
+- `POST /api/resume/upload` (upload and parse resume PDF)
+- `GET /api/resume` (get parsed resume data)
+- `GET /api/admin/usage` (admin usage metrics, requires `X-Admin-Key` header)
+
+## Security & Session Management
+
+### Authentication
+
+- Local email/password signup and signin
+- Google OAuth 2.0 integration with granular error handling
+- Server-side session cookies with `httpOnly`, `Secure`, and `SameSite` attributes
+- 30-day persistent session lifetime
+- Automatic session restoration on app load (transparent to user)
+- Protected API endpoints enforce signed-in user verification
+
+### CSRF Protection
+
+- CSRF tokens issued on `/api/auth/csrf` and included in auth responses
+- All API mutations (POST, PUT, DELETE) require `X-CSRF-Token` header
+- Tokens refreshed on every authentication action
+- Frontend automatically includes token in mutating requests via `apiFetch` helper
+
+### Operational Hardening
+
+- Production `SECRET_KEY` must be explicitly set (fails at startup if not on Vercel)
+- Production `RATELIMIT_STORAGE_URI` must be explicitly set (Redis/Valkey, not in-memory)
+- Security headers: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Strict-Transport-Security` (on HTTPS)
+- All API responses include `Cache-Control: no-store` to prevent client caching of sensitive data
 
 ## Cost and Reliability Controls
 
 - URL summarization caching to avoid repeated model calls
-- Endpoint rate limiting with Flask-Limiter
+- Endpoint rate limiting with Flask-Limiter (distributed storage recommended for production)
 - Separate models for summarization vs deep analysis
 - Token-conscious prompts and normalized outputs
 - Usage logs persisted in database for monitoring
 
 ## Troubleshooting
 
-- 401 from admin usage endpoint:
-  check `x-admin-key` header matches `ADMIN_KEY`.
-- CORS errors on production:
-  ensure `ALLOWED_ORIGINS` includes exact Pages origin.
-- OCR extraction weak or failing:
-  set your own `OCR_SPACE_API_KEY`; demo key has strict limits.
-- LinkedIn URL not parsed:
-  anti-bot pages can block scraping, use pasted details or upload mode.
-- Resume analyze disabled in UI:
-  confirm PDF uploaded and valid internship input selected.
+- **401 from protected endpoints:**
+  User must be signed in. Check that `/api/auth/me` returns `authenticated: true`.
+- **403 CSRF_TOKEN_MISSING or CSRF_TOKEN_INVALID:**
+  Frontend must call `/api/auth/csrf` before mutating requests; session may have expired. Refresh page to re-establish session.
+- **401 from admin usage endpoint:**
+  Check `X-Admin-Key` header matches `ADMIN_KEY` environment variable.
+- **CORS errors on production:**
+  Ensure `ALLOWED_ORIGINS` includes exact Pages origin (e.g., `https://aswin-m-kumar.github.io`).
+- **OCR extraction weak or failing:**
+  Set your own `OCR_SPACE_API_KEY`; demo key has strict limits.
+- **LinkedIn URL not parsed:**
+  Anti-bot pages can block scraping. Use pasted details or upload mode instead.
+- **Resume analyze disabled in UI:**
+  Confirm PDF uploaded and valid internship input selected, and user is signed in.
+- **Session lost after page refresh:**
+  Browser cookie settings may block third-party cookies. Check CORS `allow_headers` includes `Set-Cookie`; ensure frontend origin is trusted.
 
 ## Development Validation Checklist
 
