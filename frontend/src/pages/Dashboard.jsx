@@ -477,7 +477,7 @@ export function Dashboard() {
       await signOut();
     } finally {
       setSignOutLoading(false);
-      window.location.hash = "#auth";
+      window.location.hash = "#dashboard";
     }
   }
 
