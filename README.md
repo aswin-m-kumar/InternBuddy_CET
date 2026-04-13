@@ -58,6 +58,7 @@ SECRET_KEY=dev-secret-key
 DATABASE_URL=sqlite:///internbuddy.db
 PORT=5000
 ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+RATELIMIT_STORAGE_URI=memory://
 NVIDIA_API_KEY=your-nvidia-api-key
 OCR_SPACE_API_KEY=your-ocr-space-api-key
 LLM_BASE_URL=https://integrate.api.nvidia.com/v1
@@ -100,6 +101,7 @@ Recommended backend environment variables:
 
 - `SECRET_KEY`
 - `DATABASE_URL`
+- `RATELIMIT_STORAGE_URI` (use Redis/Valkey in production, avoid `memory://`)
 - `NVIDIA_API_KEY`
 - `OCR_SPACE_API_KEY`
 - `ALLOWED_ORIGINS=https://aswin-m-kumar.github.io`
@@ -127,6 +129,7 @@ Root backend variables (`.env`):
 - `DATABASE_URL`: SQLite local or PostgreSQL production URL
 - `PORT`: backend port (local)
 - `ALLOWED_ORIGINS`: comma-separated CORS origins
+- `RATELIMIT_STORAGE_URI`: Flask-Limiter store (`memory://` local, Redis/Valkey in production)
 - `NVIDIA_API_KEY`: AI API key
 - `OCR_SPACE_API_KEY`: OCR API key
 - `LLM_BASE_URL`: AI base URL

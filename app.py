@@ -1,10 +1,13 @@
 import os
+import hmac
+import secrets
 import hashlib
 import logging
 import json
 import re
 import unicodedata
 import requests as http_requests
+from datetime import timedelta
 from io import BytesIO
 from collections import Counter
 from urllib.parse import urlparse
@@ -39,7 +42,14 @@ logger = logging.getLogger(__name__)
 
 running_on_vercel = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
 app = Flask(__name__, instance_path="/tmp") if running_on_vercel else Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "dev-secret-key-change-in-prod")
+
+secret_key = (os.getenv("SECRET_KEY") or "").strip()
+if running_on_vercel and (not secret_key or secret_key == "dev-secret-key-change-in-prod"):
+    raise RuntimeError("SECRET_KEY must be set to a strong random value in production")
+if not secret_key:
+    # Local-only fallback for developer convenience.
+    secret_key = "dev-secret-key-change-in-prod"
+app.secret_key = secret_key
 
 database_url = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
 if database_url.startswith("postgres://"):
@@ -51,6 +61,8 @@ app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None" if running_on_vercel else "Lax"
 app.config["SESSION_COOKIE_SECURE"] = bool(running_on_vercel)
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+app.config["SESSION_COOKIE_NAME"] = "internbuddy_session"
 
 SUMMARY_UPLOAD_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "pdf"}
 MAX_SUMMARY_UPLOAD_SIZE = 8 * 1024 * 1024
@@ -69,39 +81,50 @@ CORS(
     app,
     resources={r"/api/*": {"origins": allowed_origins}},
     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization"],
+    allow_headers=["Content-Type", "Authorization", "X-CSRF-Token"],
     supports_credentials=True
 )
+
+rate_limit_storage_uri = os.getenv("RATELIMIT_STORAGE_URI", "").strip()
+if running_on_vercel and not rate_limit_storage_uri:
+    raise RuntimeError("RATELIMIT_STORAGE_URI must be configured in production")
+if not rate_limit_storage_uri:
+    rate_limit_storage_uri = "memory://"
 
 limiter = Limiter(
     get_remote_address,
     app=app,
     default_limits=["20 per hour"],
-    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://")
+    storage_uri=rate_limit_storage_uri,
 )
 
 init_db(app)
 
 
-def get_default_user():
-    """Return the signed-in user if present, else fallback to local default profile."""
+def get_authenticated_user():
+    """Return the signed-in user from session, else None."""
     session_user_id = session.get("user_id")
     if session_user_id is not None:
         user = User.query.get(session_user_id)
         if user:
             return user
         session.pop("user_id", None)
+    return None
 
-    user = User.query.filter_by(email="local@internbuddy.app").first()
+
+def require_authenticated_user():
+    user = get_authenticated_user()
     if not user:
-        user = User(
-            email="local@internbuddy.app",
-            name="Local Student",
-            provider="local"
-        )
-        db.session.add(user)
-        db.session.commit()
-    return user
+        return None, api_error("AUTH_REQUIRED", "Sign in required", 401)
+    return user, None
+
+
+def ensure_csrf_token():
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf_token"] = token
+    return token
 
 
 def is_valid_http_url(value):
@@ -677,9 +700,33 @@ def set_security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    if running_on_vercel:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload"
     if request.path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"
     return response
+
+
+@app.before_request
+def enforce_csrf_for_api_mutations():
+    if not request.path.startswith("/api/"):
+        return None
+
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        ensure_csrf_token()
+        return None
+
+    expected_token = session.get("csrf_token")
+    provided_token = (request.headers.get("X-CSRF-Token") or "").strip()
+
+    if not expected_token or not provided_token:
+        return api_error("CSRF_TOKEN_MISSING", "Missing CSRF token", 403)
+
+    if not hmac.compare_digest(expected_token, provided_token):
+        return api_error("CSRF_TOKEN_INVALID", "Invalid CSRF token", 403)
+
+    return None
 
 
 @app.route("/")
@@ -738,6 +785,8 @@ def auth_signup():
     db.session.add(credential)
     db.session.commit()
 
+    session.permanent = True
+    session["csrf_token"] = secrets.token_urlsafe(32)
     session["user_id"] = user.id
 
     return jsonify({
@@ -765,6 +814,8 @@ def auth_signin():
     if not credential or not check_password_hash(credential.password_hash, password):
         return api_error("INVALID_CREDENTIALS", "Invalid email or password", 401)
 
+    session.permanent = True
+    session["csrf_token"] = secrets.token_urlsafe(32)
     session["user_id"] = user.id
 
     return jsonify({
@@ -776,22 +827,26 @@ def auth_signin():
 
 @app.route("/api/auth/signout", methods=["POST"])
 def auth_signout():
-    session.pop("user_id", None)
+    session.clear()
     return jsonify({"success": True, "message": "Signed out"})
 
 
 @app.route("/api/auth/me", methods=["GET"])
 def auth_me():
-    session_user_id = session.get("user_id")
-    if not session_user_id:
-        return jsonify({"authenticated": False, "user": None})
-
-    user = User.query.get(session_user_id)
+    user = get_authenticated_user()
     if not user:
-        session.pop("user_id", None)
         return jsonify({"authenticated": False, "user": None})
 
-    return jsonify({"authenticated": True, "user": serialize_user(user)})
+    return jsonify({
+        "authenticated": True,
+        "user": serialize_user(user),
+        "csrf_token": ensure_csrf_token(),
+    })
+
+
+@app.route("/api/auth/csrf", methods=["GET"])
+def auth_csrf():
+    return jsonify({"success": True, "csrf_token": ensure_csrf_token()})
 
 
 @app.route("/api/auth/google/start", methods=["GET"])
@@ -804,6 +859,7 @@ def auth_google_start():
             include_granted_scopes="true",
             prompt="select_account",
         )
+        ensure_csrf_token()
         session["google_oauth_state"] = state
         return redirect(auth_url)
     except ValueError as exc:
@@ -884,6 +940,8 @@ def auth_google_callback():
                 user.provider = "google"
 
         db.session.commit()
+        session.permanent = True
+        session["csrf_token"] = secrets.token_urlsafe(32)
         session["user_id"] = user.id
         session.pop("google_oauth_state", None)
         return redirect(f"{frontend_base}/#dashboard")
@@ -905,7 +963,9 @@ def upload_resume():
     if not allowed_file(file.filename):
         return jsonify({'error': 'Only PDF files are allowed'}), 400
 
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
     filename = save_resume(file, user.id)
 
     api_key = os.getenv("NVIDIA_API_KEY")
@@ -933,7 +993,9 @@ def upload_resume():
 
 @app.route("/api/resume")
 def get_resume():
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
     return jsonify({
         'education': user.education,
         'skills': user.skills,
@@ -1038,7 +1100,9 @@ def list_internships():
 
     internships = internships_query.order_by(Internship.posted_at.desc()).limit(50).all()
 
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
     api_key = os.getenv("NVIDIA_API_KEY")
 
     results = []
@@ -1081,7 +1145,9 @@ def list_internships():
 @app.route("/api/internships/<int:internship_id>", methods=["GET"])
 def get_internship(internship_id):
     intern = Internship.query.get_or_404(internship_id)
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
     api_key = os.getenv("NVIDIA_API_KEY")
 
     eligibility = None
@@ -1122,7 +1188,9 @@ def get_internship(internship_id):
 
 @app.route("/api/internships/<int:internship_id>/save", methods=["POST"])
 def save_internship_endpoint(internship_id):
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
     Internship.query.get_or_404(internship_id)
 
     existing = SavedInternship.query.filter_by(
@@ -1142,7 +1210,9 @@ def save_internship_endpoint(internship_id):
 
 @app.route("/api/internships/<int:internship_id>/save", methods=["DELETE"])
 def unsave_internship_endpoint(internship_id):
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
 
     saved = SavedInternship.query.filter_by(
         user_id=user.id,
@@ -1158,7 +1228,9 @@ def unsave_internship_endpoint(internship_id):
 
 @app.route("/api/saved", methods=["GET"])
 def list_saved():
-    user = get_default_user()
+    user, auth_error = require_authenticated_user()
+    if auth_error:
+        return auth_error
     saved = SavedInternship.query.filter_by(user_id=user.id).all()
 
     results = []
