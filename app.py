@@ -8,6 +8,7 @@ import requests as http_requests
 from io import BytesIO
 from collections import Counter
 from urllib.parse import urlparse
+from urllib.parse import quote
 from sqlalchemy import func, case
 
 from flask import Flask, request, jsonify, session, redirect
@@ -813,11 +814,11 @@ def auth_google_callback():
     oauth_error = request.args.get("error")
     if oauth_error:
         logger.warning("Google OAuth callback error: %s", oauth_error)
-        return redirect(f"{frontend_base}/#auth")
+        return redirect(f"{frontend_base}/#auth?oauth_error={quote(oauth_error)}")
 
     state = session.get("google_oauth_state")
     if not state:
-        return redirect(f"{frontend_base}/#auth")
+        return redirect(f"{frontend_base}/#auth?oauth_error=missing_state")
 
     try:
         flow = build_google_flow(state=state)
@@ -831,12 +832,12 @@ def auth_google_callback():
 
         if not userinfo_response.ok:
             logger.error("Google userinfo fetch failed: %s", userinfo_response.text)
-            return redirect(f"{frontend_base}/#auth")
+            return redirect(f"{frontend_base}/#auth?oauth_error=userinfo_failed")
 
         profile = userinfo_response.json()
         email = (profile.get("email") or "").strip().lower()
         if not email:
-            return redirect(f"{frontend_base}/#auth")
+            return redirect(f"{frontend_base}/#auth?oauth_error=missing_email")
 
         name = (profile.get("name") or email.split("@")[0]).strip()
         avatar_url = (profile.get("picture") or "").strip() or None
@@ -864,7 +865,7 @@ def auth_google_callback():
         return redirect(f"{frontend_base}/#dashboard")
     except Exception as exc:
         logger.error("Google OAuth callback failed: %s", exc)
-        return redirect(f"{frontend_base}/#auth")
+        return redirect(f"{frontend_base}/#auth?oauth_error=callback_failed")
 
 @app.route("/api/resume/upload", methods=["POST"])
 def upload_resume():

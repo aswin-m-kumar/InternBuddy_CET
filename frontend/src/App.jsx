@@ -15,11 +15,11 @@ function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  if (routeHash === "#auth") {
+  if (routeHash.startsWith("#auth")) {
     return <Auth />;
   }
 
-  if (routeHash === "#dashboard") {
+  if (routeHash.startsWith("#dashboard")) {
     return <Dashboard />;
   }
 

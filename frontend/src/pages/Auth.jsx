@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { LockKeyhole, Mail, Sparkles } from "lucide-react";
 import brandIcon from "../assets/icon.png";
 import { signIn, startGoogleSignIn } from "../lib/auth";
@@ -50,6 +50,30 @@ export function Auth() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const hash = window.location.hash || "";
+    const queryStart = hash.indexOf("?");
+    if (queryStart === -1) {
+      return;
+    }
+
+    const params = new URLSearchParams(hash.slice(queryStart + 1));
+    const oauthError = params.get("oauth_error");
+    if (!oauthError) {
+      return;
+    }
+
+    const errorMap = {
+      access_denied: "Google sign-in was cancelled or denied.",
+      missing_state: "Google sign-in session expired. Please try again.",
+      userinfo_failed: "Google sign-in failed while reading your profile.",
+      missing_email: "Google account did not provide an email.",
+      callback_failed: "Google sign-in callback failed. Please try again.",
+    };
+
+    setError(errorMap[oauthError] || "Google sign-in failed. Please try again.");
+  }, []);
 
   const onGoogleSignIn = () => {
     startGoogleSignIn();
