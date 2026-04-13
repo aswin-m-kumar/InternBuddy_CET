@@ -9,14 +9,15 @@ from collections import Counter
 from urllib.parse import urlparse
 from sqlalchemy import func, case
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 from openai import OpenAI
+from werkzeug.security import check_password_hash, generate_password_hash
 
-from models import db, init_db, User, Internship, SavedInternship, Application, UsageLog
+from models import db, init_db, User, Internship, SavedInternship, Application, UsageLog, AuthCredential
 from resume_parser import allowed_file, save_resume, parse_resume, MAX_FILE_SIZE
 from job_scraper import (
     scrape_linkedin_job,
@@ -44,6 +45,9 @@ if database_url.startswith("postgres://"):
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None" if running_on_vercel else "Lax"
+app.config["SESSION_COOKIE_SECURE"] = bool(running_on_vercel)
 
 SUMMARY_UPLOAD_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "pdf"}
 MAX_SUMMARY_UPLOAD_SIZE = 8 * 1024 * 1024
@@ -77,7 +81,14 @@ init_db(app)
 
 
 def get_default_user():
-    """Return a single local profile used by the small-scale deployment."""
+    """Return the signed-in user if present, else fallback to local default profile."""
+    session_user_id = session.get("user_id")
+    if session_user_id is not None:
+        user = User.query.get(session_user_id)
+        if user:
+            return user
+        session.pop("user_id", None)
+
     user = User.query.filter_by(email="local@internbuddy.app").first()
     if not user:
         user = User(
@@ -153,6 +164,17 @@ def api_error(error_code, message, status_code=400):
 def estimate_tokens_from_text(*parts):
     text = " ".join(part for part in parts if isinstance(part, str) and part)
     return max(1, len(text) // 4) if text else 0
+
+
+def serialize_user(user):
+    return {
+        "id": user.id,
+        "email": user.email,
+        "name": user.name,
+        "provider": user.provider,
+        "has_resume": bool(user.resume_path),
+        "created_at": user.created_at.isoformat() if user.created_at else None,
+    }
 
 
 def log_usage(endpoint, model_used=None, tokens_estimate=0, cached=False):
@@ -614,6 +636,93 @@ def payload_too_large(_):
 
 
 # ============== Resume Endpoints ==============
+
+@app.route("/api/auth/signup", methods=["POST"])
+@limiter.limit("20 per hour")
+def auth_signup():
+    payload = request.get_json(silent=True) or {}
+    full_name = (payload.get("full_name") or payload.get("fullName") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+
+    if not full_name:
+        return api_error("FULL_NAME_REQUIRED", "Full name is required", 400)
+
+    if not email or not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", email):
+        return api_error("INVALID_EMAIL", "Enter a valid email address", 400)
+
+    if len(password) < 8:
+        return api_error("WEAK_PASSWORD", "Password must be at least 8 characters", 400)
+
+    existing = User.query.filter_by(email=email).first()
+    if existing:
+        return api_error("EMAIL_EXISTS", "An account already exists with this email", 409)
+
+    user = User(email=email, name=full_name, provider="local")
+    db.session.add(user)
+    db.session.flush()
+
+    credential = AuthCredential(
+        user_id=user.id,
+        password_hash=generate_password_hash(password),
+    )
+    db.session.add(credential)
+    db.session.commit()
+
+    session["user_id"] = user.id
+
+    return jsonify({
+        "success": True,
+        "message": "Account created successfully",
+        "user": serialize_user(user),
+    }), 201
+
+
+@app.route("/api/auth/signin", methods=["POST"])
+@limiter.limit("40 per hour")
+def auth_signin():
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+
+    if not email or not password:
+        return api_error("MISSING_CREDENTIALS", "Email and password are required", 400)
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return api_error("INVALID_CREDENTIALS", "Invalid email or password", 401)
+
+    credential = AuthCredential.query.filter_by(user_id=user.id).first()
+    if not credential or not check_password_hash(credential.password_hash, password):
+        return api_error("INVALID_CREDENTIALS", "Invalid email or password", 401)
+
+    session["user_id"] = user.id
+
+    return jsonify({
+        "success": True,
+        "message": "Signed in successfully",
+        "user": serialize_user(user),
+    })
+
+
+@app.route("/api/auth/signout", methods=["POST"])
+def auth_signout():
+    session.pop("user_id", None)
+    return jsonify({"success": True, "message": "Signed out"})
+
+
+@app.route("/api/auth/me", methods=["GET"])
+def auth_me():
+    session_user_id = session.get("user_id")
+    if not session_user_id:
+        return jsonify({"authenticated": False, "user": None})
+
+    user = User.query.get(session_user_id)
+    if not user:
+        session.pop("user_id", None)
+        return jsonify({"authenticated": False, "user": None})
+
+    return jsonify({"authenticated": True, "user": serialize_user(user)})
 
 @app.route("/api/resume/upload", methods=["POST"])
 def upload_resume():

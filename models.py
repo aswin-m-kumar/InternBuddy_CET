@@ -24,6 +24,17 @@ class User(db.Model):
     # Relationships
     saved_internships = db.relationship('SavedInternship', backref='user', lazy='dynamic', cascade='all, delete-orphan')
     applications = db.relationship('Application', backref='user', lazy='dynamic', cascade='all, delete-orphan')
+    credential = db.relationship('AuthCredential', backref='user', uselist=False, cascade='all, delete-orphan')
+
+
+class AuthCredential(db.Model):
+    __tablename__ = 'auth_credentials'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, unique=True)
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class Internship(db.Model):
     __tablename__ = 'internships'
