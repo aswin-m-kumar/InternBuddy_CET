@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import brandIcon from "../assets/icon.png";
+import { signIn, signUp, startGoogleSignIn } from "../lib/auth";
 
 const capabilities = [
   {
@@ -243,10 +244,15 @@ export function Landing() {
     setSignInLoading(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 900));
-      setSignInSuccess(
-        "Signed in. Welcome back to the CET internship community.",
-      );
+      await signIn({
+        email: signInForm.email.trim().toLowerCase(),
+        password: signInForm.password,
+      });
+      setSignInSuccess("Signed in successfully.");
+      window.location.hash = "#dashboard";
+      setActiveModal(null);
+    } catch (err) {
+      setSignInError(err.message || "Unable to sign in right now.");
     } finally {
       setSignInLoading(false);
     }
@@ -283,11 +289,27 @@ export function Landing() {
     setSignUpLoading(true);
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 1100));
-      setSignUpSuccess("Account created successfully. You can now sign in.");
+      await signUp({
+        fullName,
+        email,
+        password: signUpForm.password,
+      });
+      setSignUpSuccess("Account created successfully.");
+      window.location.hash = "#dashboard";
+      setActiveModal(null);
+    } catch (err) {
+      setSignUpError(err.message || "Unable to create account right now.");
     } finally {
       setSignUpLoading(false);
     }
+  };
+
+  const handleGoogleSignIn = () => {
+    startGoogleSignIn();
+  };
+
+  const handleGoogleSignUp = () => {
+    startGoogleSignIn();
   };
 
   const handleBackdropClick = (event) => {
@@ -772,6 +794,7 @@ export function Landing() {
 
                 <button
                   type="button"
+                  onClick={handleGoogleSignIn}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/25 px-4 py-3 text-sm font-semibold text-[#111827] transition hover:bg-white/35"
                 >
                   <GoogleMark />
@@ -934,6 +957,7 @@ export function Landing() {
 
                 <button
                   type="button"
+                  onClick={handleGoogleSignUp}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/25 px-4 py-3 text-sm font-semibold text-[#111827] transition hover:bg-white/35"
                 >
                   <GoogleMark />

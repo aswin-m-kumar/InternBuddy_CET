@@ -4,17 +4,19 @@ import logging
 import json
 import re
 import unicodedata
+import requests as http_requests
 from io import BytesIO
 from collections import Counter
 from urllib.parse import urlparse
 from sqlalchemy import func, case
 
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, redirect
 from flask_cors import CORS
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
 from openai import OpenAI
+from google_auth_oauthlib.flow import Flow
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from models import db, init_db, User, Internship, SavedInternship, Application, UsageLog, AuthCredential
@@ -175,6 +177,53 @@ def serialize_user(user):
         "has_resume": bool(user.resume_path),
         "created_at": user.created_at.isoformat() if user.created_at else None,
     }
+
+
+def get_frontend_redirect_base():
+    configured_origin = (os.getenv("FRONTEND_URL") or os.getenv("FRONTEND_ORIGIN") or "").strip()
+    if configured_origin:
+        return configured_origin.rstrip("/")
+
+    if allowed_origins:
+        return allowed_origins[0].rstrip("/")
+
+    origin_header = (request.headers.get("Origin") or "").strip()
+    if origin_header and is_valid_http_url(origin_header):
+        return origin_header.rstrip("/")
+
+    return "http://localhost:5173"
+
+
+def build_google_flow(state=None):
+    client_id = (os.getenv("GOOGLE_CLIENT_ID") or os.getenv("VITE_GOOGLE_CLIENT_ID") or "").strip()
+    client_secret = (os.getenv("GOOGLE_CLIENT_SECRET") or "").strip()
+
+    if not client_id or not client_secret:
+        raise ValueError("Google OAuth is not configured on the backend")
+
+    redirect_uri = (os.getenv("GOOGLE_REDIRECT_URI") or "").strip()
+    if not redirect_uri:
+        redirect_uri = f"{request.url_root.rstrip('/')}/api/auth/google/callback"
+
+    if redirect_uri.startswith("http://localhost") or redirect_uri.startswith("http://127.0.0.1"):
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+    client_config = {
+        "web": {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": [redirect_uri],
+        }
+    }
+
+    return Flow.from_client_config(
+        client_config=client_config,
+        scopes=["openid", "email", "profile"],
+        state=state,
+        redirect_uri=redirect_uri,
+    )
 
 
 def log_usage(endpoint, model_used=None, tokens_estimate=0, cached=False):
@@ -723,6 +772,86 @@ def auth_me():
         return jsonify({"authenticated": False, "user": None})
 
     return jsonify({"authenticated": True, "user": serialize_user(user)})
+
+
+@app.route("/api/auth/google/start", methods=["GET"])
+@limiter.limit("30 per hour")
+def auth_google_start():
+    try:
+        flow = build_google_flow()
+        auth_url, state = flow.authorization_url(
+            access_type="offline",
+            include_granted_scopes="true",
+            prompt="select_account",
+        )
+        session["google_oauth_state"] = state
+        return redirect(auth_url)
+    except ValueError as exc:
+        return api_error("GOOGLE_CONFIG_ERROR", str(exc), 500)
+    except Exception as exc:
+        logger.error("Google OAuth start failed: %s", exc)
+        return api_error("GOOGLE_OAUTH_START_FAILED", "Could not start Google sign-in", 500)
+
+
+@app.route("/api/auth/google/callback", methods=["GET"])
+def auth_google_callback():
+    frontend_base = get_frontend_redirect_base()
+
+    oauth_error = request.args.get("error")
+    if oauth_error:
+        logger.warning("Google OAuth callback error: %s", oauth_error)
+        return redirect(f"{frontend_base}/#auth")
+
+    state = session.get("google_oauth_state")
+    if not state:
+        return redirect(f"{frontend_base}/#auth")
+
+    try:
+        flow = build_google_flow(state=state)
+        flow.fetch_token(authorization_response=request.url)
+
+        userinfo_response = http_requests.get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {flow.credentials.token}"},
+            timeout=10,
+        )
+
+        if not userinfo_response.ok:
+            logger.error("Google userinfo fetch failed: %s", userinfo_response.text)
+            return redirect(f"{frontend_base}/#auth")
+
+        profile = userinfo_response.json()
+        email = (profile.get("email") or "").strip().lower()
+        if not email:
+            return redirect(f"{frontend_base}/#auth")
+
+        name = (profile.get("name") or email.split("@")[0]).strip()
+        avatar_url = (profile.get("picture") or "").strip() or None
+
+        user = User.query.filter_by(email=email).first()
+        if not user:
+            user = User(
+                email=email,
+                name=name,
+                avatar_url=avatar_url,
+                provider="google",
+            )
+            db.session.add(user)
+        else:
+            if name and user.name != name:
+                user.name = name
+            if avatar_url and user.avatar_url != avatar_url:
+                user.avatar_url = avatar_url
+            if not user.provider:
+                user.provider = "google"
+
+        db.session.commit()
+        session["user_id"] = user.id
+        session.pop("google_oauth_state", None)
+        return redirect(f"{frontend_base}/#dashboard")
+    except Exception as exc:
+        logger.error("Google OAuth callback failed: %s", exc)
+        return redirect(f"{frontend_base}/#auth")
 
 @app.route("/api/resume/upload", methods=["POST"])
 def upload_resume():

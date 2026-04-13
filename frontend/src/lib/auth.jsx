@@ -52,4 +52,8 @@ function signOut() {
   });
 }
 
-export { API_BASE, signIn, signOut, signUp };
+function startGoogleSignIn() {
+  window.location.href = `${API_BASE}/api/auth/google/start`;
+}
+
+export { API_BASE, signIn, signOut, signUp, startGoogleSignIn };

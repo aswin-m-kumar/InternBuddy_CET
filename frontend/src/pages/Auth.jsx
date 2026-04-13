@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { LockKeyhole, Mail, Sparkles } from "lucide-react";
 import brandIcon from "../assets/icon.png";
-import { signIn } from "../lib/auth";
+import { signIn, startGoogleSignIn } from "../lib/auth";
 
 function GoogleMark() {
   return (
@@ -51,6 +51,10 @@ export function Auth() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  const onGoogleSignIn = () => {
+    startGoogleSignIn();
+  };
+
   const onSubmit = async (event) => {
     event.preventDefault();
     setError("");
@@ -64,7 +68,7 @@ export function Auth() {
 
     try {
       await signIn({ email: form.email.trim(), password: form.password });
-      window.location.hash = "";
+      window.location.hash = "#dashboard";
     } catch (err) {
       setError(err.message || "Unable to sign in right now.");
     } finally {
@@ -186,6 +190,7 @@ export function Auth() {
 
           <button
             type="button"
+            onClick={onGoogleSignIn}
             className="glass-panel flex w-full items-center justify-center gap-3 rounded-xl border-white/20 bg-white/10 py-4 transition-colors hover:bg-white/30"
           >
             <GoogleMark />
