@@ -2,6 +2,8 @@ import os
 import re
 import hashlib
 import logging
+import socket
+import ipaddress
 from io import BytesIO
 from datetime import datetime, timedelta
 from urllib.parse import urlparse, urljoin
@@ -28,6 +30,48 @@ STOPWORDS = {
     "your", "our", "their", "have", "has", "was", "were", "been", "can", "all", "any",
     "job", "role", "internship", "intern", "candidate", "candidates"
 }
+
+
+def is_public_ip_address(ip_value):
+    try:
+        return ipaddress.ip_address(ip_value).is_global
+    except Exception:
+        return False
+
+
+def is_safe_public_url(url_value):
+    parsed = urlparse((url_value or "").strip())
+    if parsed.scheme not in ALLOWED_SCHEMES:
+        return False, "Only http and https URLs are allowed"
+
+    hostname = (parsed.hostname or "").strip().lower()
+    if not hostname:
+        return False, "URL host is missing"
+
+    if hostname in {"localhost", "localhost.localdomain"}:
+        return False, "Localhost URLs are not allowed"
+
+    if parsed.username or parsed.password:
+        return False, "Credential-style URLs are not allowed"
+
+    if is_public_ip_address(hostname):
+        return True, None
+
+    # Resolve hostname and ensure all targets are globally routable.
+    try:
+        records = socket.getaddrinfo(hostname, None)
+    except Exception:
+        return False, "Could not resolve URL host"
+
+    resolved_ips = {record[4][0] for record in records if record and record[4]}
+    if not resolved_ips:
+        return False, "Could not resolve URL host"
+
+    for ip_value in resolved_ips:
+        if not is_public_ip_address(ip_value):
+            return False, "Private or internal network URLs are not allowed"
+
+    return True, None
 
 
 def normalize_text(value):
@@ -220,18 +264,46 @@ def extract_job_details_from_text(text, api_key):
 
 
 def scrape_linkedin_job(url, api_key):
-    """Scrape a LinkedIn job posting (with anti-bot handling)."""
+    """Scrape a job posting URL with anti-bot handling and SSRF guardrails."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml',
     }
 
+    safe_url, safe_error = is_safe_public_url(url)
+    if not safe_url:
+        return {'error': safe_error}
+
     try:
         scraper = cloudscraper.create_scraper()
-        response = scraper.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
+        current_url = url
+
+        for _ in range(MAX_REDIRECTS + 1):
+            response = scraper.get(
+                current_url,
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+                allow_redirects=False,
+            )
+
+            if response.is_redirect or response.is_permanent_redirect:
+                location = response.headers.get('Location')
+                if not location:
+                    return {'error': 'Redirect location missing'}
+
+                next_url = urljoin(current_url, location)
+                safe_next_url, safe_next_error = is_safe_public_url(next_url)
+                if not safe_next_url:
+                    return {'error': safe_next_error}
+                current_url = next_url
+                continue
+
+            break
+        else:
+            return {'error': 'Too many redirects while fetching URL'}
 
         if response.status_code == 403:
-            return {'error': 'LinkedIn blocked the request (anti-bot protection)'}
+            return {'error': 'Target site blocked the request (anti-bot protection)'}
 
         soup = BeautifulSoup(response.content, 'html.parser')
 
@@ -246,7 +318,7 @@ def scrape_linkedin_job(url, api_key):
 
         details = extract_job_details_from_text(text, api_key)
         if details:
-            details['source_url'] = url
+            details['source_url'] = current_url
             details['raw_data'] = text
             return details
 

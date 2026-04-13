@@ -7,6 +7,10 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --accent: #66d7cb;
+    --accent-bg: rgba(102, 215, 203, 0.16);
+    --accent-border: rgba(102, 215, 203, 0.45);
+    --accent-strong: #8ac7ff;
   }
 
   body {
