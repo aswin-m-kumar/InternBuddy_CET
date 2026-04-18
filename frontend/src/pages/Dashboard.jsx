@@ -8,7 +8,7 @@ const INPUT_MODES = [
   {
     id: "url",
     label: "Internship link",
-    helper: "Paste a LinkedIn or company careers URL",
+    helper: "Paste any public internship or company careers URL",
   },
   {
     id: "text",
@@ -427,8 +427,15 @@ export function Dashboard() {
 
       if (!response.ok) {
         if (response.status === 429) {
+          const retryAfterHeader = response.headers.get("Retry-After");
+          const retryAfterSeconds = Number.parseInt(retryAfterHeader || "", 10);
+          if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
+            throw new Error(
+              `Too many requests. Please wait ${retryAfterSeconds} seconds and try again.`,
+            );
+          }
           throw new Error(
-            "Too many requests. Please wait a minute and try again.",
+            "Too many requests. Please wait a bit and try again.",
           );
         }
 
@@ -623,7 +630,7 @@ export function Dashboard() {
                     type="url"
                     value={inputValue}
                     onChange={(event) => setInputValue(event.target.value)}
-                    placeholder="https://www.linkedin.com/jobs/view/..."
+                    placeholder="https://careers.example.com/jobs/internship-role"
                     className="w-full rounded-xl border border-black/20 bg-white px-4 py-2.5 text-black placeholder-black/35 transition-all focus:border-black/50 focus:outline-none focus:ring-2 focus:ring-black/15"
                   />
                 )}
@@ -946,7 +953,7 @@ export function Dashboard() {
                           setMatchUrl(event.target.value);
                           resetMatchResultState();
                         }}
-                        placeholder="https://www.linkedin.com/jobs/view/..."
+                        placeholder="https://careers.example.com/jobs/internship-role"
                         className="w-full rounded-xl border border-black/20 bg-white px-4 py-2.5 text-black placeholder-black/35 focus:border-black/50 focus:outline-none focus:ring-2 focus:ring-black/15"
                       />
                     )}

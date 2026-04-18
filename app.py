@@ -26,7 +26,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from models import db, init_db, User, Internship, SavedInternship, Application, UsageLog, AuthCredential
 from resume_parser import allowed_file, save_resume, parse_resume, MAX_FILE_SIZE
 from job_scraper import (
-    scrape_linkedin_job,
+    scrape_job_posting_url,
     save_internship,
     extract_job_details_from_text,
     extract_text_from_uploaded_file,
@@ -92,11 +92,45 @@ if not rate_limit_storage_uri:
     rate_limit_storage_uri = "memory://"
 
 limiter = Limiter(
-    get_remote_address,
+    # Prefer user-based buckets for authenticated traffic; fall back to IP.
+    key_func=lambda: f"user:{session.get('user_id')}" if session.get("user_id") else get_remote_address(),
     app=app,
-    default_limits=["20 per hour"],
+    default_limits=[os.getenv("DEFAULT_RATE_LIMIT", "200 per hour" if running_on_vercel else "500 per hour")],
     storage_uri=rate_limit_storage_uri,
 )
+
+auth_signup_limit = os.getenv(
+    "AUTH_SIGNUP_LIMIT",
+    "120 per hour" if running_on_vercel else "300 per hour",
+).strip()
+auth_signin_limit = os.getenv(
+    "AUTH_SIGNIN_LIMIT",
+    "240 per hour" if running_on_vercel else "600 per hour",
+).strip()
+auth_google_start_limit = os.getenv(
+    "AUTH_GOOGLE_START_LIMIT",
+    "180 per hour" if running_on_vercel else "500 per hour",
+).strip()
+summarize_limit = os.getenv(
+    "SUMMARIZE_LIMIT",
+    "60 per hour" if running_on_vercel else "200 per hour",
+).strip()
+summarize_file_limit = os.getenv(
+    "SUMMARIZE_FILE_LIMIT",
+    "20 per hour" if running_on_vercel else "80 per hour",
+).strip()
+resume_analyze_limit_per_hour = os.getenv(
+    "RESUME_ANALYZE_LIMIT_PER_HOUR",
+    "30 per hour" if running_on_vercel else "80 per hour",
+).strip()
+resume_analyze_limit_per_minute = os.getenv(
+    "RESUME_ANALYZE_LIMIT_PER_MINUTE",
+    "6 per minute" if running_on_vercel else "20 per minute",
+).strip()
+legacy_generate_limit = os.getenv(
+    "LEGACY_GENERATE_LIMIT",
+    "30 per minute" if running_on_vercel else "60 per minute",
+).strip()
 
 init_db(app)
 
@@ -390,7 +424,7 @@ def summarize_internship_from_form(api_key):
             usage_meta["tokens_estimate"] = 0
             return {}, existing, summary, [], usage_meta, None
 
-        details = scrape_linkedin_job(internship_url, api_key)
+        details = scrape_job_posting_url(internship_url, api_key)
         if not isinstance(details, dict):
             return None, None, None, None, usage_meta, api_error(
                 "SUMMARIZATION_FAILED",
@@ -404,7 +438,7 @@ def summarize_internship_from_form(api_key):
             if "blocked" in lowered or "anti-bot" in lowered:
                 return None, None, None, None, usage_meta, api_error(
                     "LINKEDIN_BLOCKED",
-                    "LinkedIn blocked automatic scraping. Paste internship details text or upload poster instead.",
+                    "The target site blocked automatic scraping. Paste internship details text or upload poster instead.",
                     422,
                 )
             return None, None, None, None, usage_meta, api_error("SUMMARIZATION_FAILED", error_message, 422)
@@ -754,7 +788,7 @@ def payload_too_large(_):
 # ============== Resume Endpoints ==============
 
 @app.route("/api/auth/signup", methods=["POST"])
-@limiter.limit("20 per hour")
+@limiter.limit(auth_signup_limit)
 def auth_signup():
     payload = request.get_json(silent=True) or {}
     full_name = (payload.get("full_name") or payload.get("fullName") or "").strip()
@@ -797,7 +831,7 @@ def auth_signup():
 
 
 @app.route("/api/auth/signin", methods=["POST"])
-@limiter.limit("40 per hour")
+@limiter.limit(auth_signin_limit)
 def auth_signin():
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip().lower()
@@ -850,7 +884,7 @@ def auth_csrf():
 
 
 @app.route("/api/auth/google/start", methods=["GET"])
-@limiter.limit("30 per hour")
+@limiter.limit(auth_google_start_limit)
 def auth_google_start():
     try:
         flow = build_google_flow()
@@ -1006,8 +1040,8 @@ def get_resume():
 
 
 @app.route("/api/resume/analyze", methods=["POST"])
-@limiter.limit("3 per hour")
-@limiter.limit("1 per minute")
+@limiter.limit(resume_analyze_limit_per_hour)
+@limiter.limit(resume_analyze_limit_per_minute)
 def analyze_resume_against_internship():
     resume_file = request.files.get("resume") or request.files.get("file")
     if not resume_file:
@@ -1255,7 +1289,7 @@ def list_saved():
 # ============== Manual Internship Submission ==============
 
 @app.route("/api/internships/summarize-file", methods=["POST"])
-@limiter.limit("5 per hour")
+@limiter.limit(summarize_file_limit)
 def summarize_internship_file():
     uploaded_file = request.files.get("file")
     if not uploaded_file:
@@ -1327,7 +1361,7 @@ def summarize_internship_file():
     })
 
 @app.route("/api/internships/summarize", methods=["POST"])
-@limiter.limit("10 per hour")
+@limiter.limit(summarize_limit)
 def summarize_internship():
     data = request.get_json(silent=True) or {}
     input_type = (data.get("input_type") or "").strip().lower()
@@ -1366,7 +1400,7 @@ def summarize_internship():
                 "summary": summary,
             })
 
-        details = scrape_linkedin_job(user_input, api_key)
+        details = scrape_job_posting_url(user_input, api_key)
         if not isinstance(details, dict):
             return jsonify({"error": "Could not summarize this internship URL"}), 422
 
@@ -1376,7 +1410,7 @@ def summarize_internship():
 
             if "blocked" in lower_error or "anti-bot" in lower_error:
                 return jsonify({
-                    "error": "LinkedIn blocked automatic scraping. Paste internship details text instead.",
+                    "error": "The target site blocked automatic scraping. Paste internship details text instead.",
                     "error_code": "LINKEDIN_BLOCKED"
                 }), 422
 
@@ -1430,7 +1464,7 @@ def submit_internship():
     if not api_key:
         return jsonify({'error': 'Backend configuration error'}), 500
 
-    details = scrape_linkedin_job(url, api_key)
+    details = scrape_job_posting_url(url, api_key)
     if not isinstance(details, dict):
         return jsonify({'error': 'Could not summarize this internship URL'}), 422
 
@@ -1438,7 +1472,7 @@ def submit_internship():
         message = str(details.get('error') or 'Could not summarize this internship URL')
         if 'blocked' in message.lower() or 'anti-bot' in message.lower():
             return jsonify({
-                'error': 'LinkedIn blocked automatic scraping. Paste internship details text instead.',
+                'error': 'The target site blocked automatic scraping. Paste internship details text instead.',
                 'error_code': 'LINKEDIN_BLOCKED'
             }), 422
         return jsonify({'error': message}), 422
@@ -1472,7 +1506,7 @@ def usage_stats():
 # ============== Legacy Endpoint (for backward compatibility) ==============
 
 @app.route("/api/generate", methods=["POST"])
-@limiter.limit("5 per minute")
+@limiter.limit(legacy_generate_limit)
 def generate_legacy():
     """Legacy endpoint from InternAgent - kept for backward compatibility."""
     return jsonify({

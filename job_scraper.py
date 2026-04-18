@@ -263,8 +263,8 @@ def extract_job_details_from_text(text, api_key):
         return None
 
 
-def scrape_linkedin_job(url, api_key):
-    """Scrape a job posting URL with anti-bot handling and SSRF guardrails."""
+def scrape_job_posting_url(url, api_key):
+    """Scrape a public job posting URL with anti-bot handling and SSRF guardrails."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
         'Accept': 'text/html,application/xhtml+xml',
@@ -314,7 +314,7 @@ def scrape_linkedin_job(url, api_key):
         text = soup.get_text(separator=' ', strip=True)[:10000]
 
         if len(text) < 100:
-            return {'error': 'Could not extract meaningful content from LinkedIn page'}
+            return {'error': 'Could not extract meaningful content from the page'}
 
         details = extract_job_details_from_text(text, api_key)
         if details:
@@ -325,8 +325,13 @@ def scrape_linkedin_job(url, api_key):
         return {'error': 'Failed to extract job details'}
 
     except Exception as e:
-        logger.error(f"LinkedIn scraping error: {e}")
+        logger.error(f"Job posting scraping error: {e}")
         return {'error': str(e)}
+
+
+def scrape_linkedin_job(url, api_key):
+    """Backward-compatible wrapper; kept for older imports."""
+    return scrape_job_posting_url(url, api_key)
 
 
 def scrape_internship_cell_poster(text_content, source_url, api_key):
