@@ -484,7 +484,7 @@ export function Dashboard() {
       await signOut();
     } finally {
       setSignOutLoading(false);
-      window.location.hash = "#dashboard";
+      window.location.hash = "#auth";
     }
   }
 

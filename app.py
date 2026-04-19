@@ -40,6 +40,52 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Database retry decorator for transient connection failures
+from functools import wraps
+from time import sleep
+from sqlalchemy.exc import OperationalError, DisconnectionError, StatementError
+
+def retry_on_db_error(max_retries=3, backoff_factor=0.5):
+    """Retry database operations on transient connection errors."""
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            retries = 0
+            last_error = None
+            
+            while retries < max_retries:
+                try:
+                    return f(*args, **kwargs)
+                except (OperationalError, DisconnectionError, StatementError) as e:
+                    # Check if error is transient (SSL closed, connection lost, etc.)
+                    error_str = str(e).lower()
+                    is_transient = any(term in error_str for term in [
+                        'ssl',
+                        'connection',
+                        'closed',
+                        'reset',
+                        'timeout',
+                        'lost',
+                    ])
+                    
+                    if not is_transient or retries >= max_retries - 1:
+                        raise
+                    
+                    last_error = e
+                    retries += 1
+                    wait_time = backoff_factor * (2 ** retries)
+                    logger.warning(
+                        f"Database error (attempt {retries}/{max_retries}): {str(e)[:100]}. "
+                        f"Retrying in {wait_time}s..."
+                    )
+                    sleep(wait_time)
+            
+            if last_error:
+                raise last_error
+        
+        return wrapper
+    return decorator
+
 running_on_vercel = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
 app = Flask(__name__, instance_path="/tmp") if running_on_vercel else Flask(__name__)
 
@@ -57,6 +103,30 @@ if database_url.startswith("postgres://"):
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# Connection pool configuration for serverless (Vercel/Lambda)
+# Reduced pool sizes since Lambda functions are ephemeral
+if running_on_vercel and database_url.startswith("postgresql://"):
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_size": 2,                    # Small pool for serverless
+        "max_overflow": 1,                 # Minimal overflow
+        "pool_pre_ping": True,             # Verify connections before use
+        "pool_recycle": 300,               # Recycle after 5 minutes (prevent stale connections)
+        "connect_args": {
+            "connect_timeout": 10,
+            "keepalives": 1,
+            "keepalives_idle": 30,
+            "keepalives_interval": 10,
+        }
+    }
+elif database_url.startswith("postgresql://"):
+    # Local/development with PostgreSQL
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_pre_ping": True,
+        "pool_recycle": 3600,
+    }
 app.config["MAX_CONTENT_LENGTH"] = MAX_FILE_SIZE
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "None" if running_on_vercel else "Lax"
@@ -133,6 +203,24 @@ legacy_generate_limit = os.getenv(
 ).strip()
 
 init_db(app)
+
+
+# Connection pool management for serverless
+@app.before_request
+def manage_db_connections():
+    """Ensure proper connection pooling behavior on serverless."""
+    if running_on_vercel:
+        # Dispose of any stale connections at the start of each request
+        # This helps prevent connection pool exhaustion
+        db.engine.dispose()
+
+
+@app.teardown_appcontext
+def cleanup_db_connections(exception=None):
+    """Clean up database connections after each request."""
+    if running_on_vercel and exception:
+        # On error, dispose all connections to prevent pool corruption
+        db.engine.dispose()
 
 
 def get_authenticated_user():
@@ -789,6 +877,7 @@ def payload_too_large(_):
 
 @app.route("/api/auth/signup", methods=["POST"])
 @limiter.limit(auth_signup_limit)
+@retry_on_db_error(max_retries=3)
 def auth_signup():
     payload = request.get_json(silent=True) or {}
     full_name = (payload.get("full_name") or payload.get("fullName") or "").strip()
@@ -832,6 +921,7 @@ def auth_signup():
 
 @app.route("/api/auth/signin", methods=["POST"])
 @limiter.limit(auth_signin_limit)
+@retry_on_db_error(max_retries=3)
 def auth_signin():
     payload = request.get_json(silent=True) or {}
     email = (payload.get("email") or "").strip().lower()
@@ -1042,6 +1132,7 @@ def get_resume():
 @app.route("/api/resume/analyze", methods=["POST"])
 @limiter.limit(resume_analyze_limit_per_hour)
 @limiter.limit(resume_analyze_limit_per_minute)
+@retry_on_db_error(max_retries=3)
 def analyze_resume_against_internship():
     resume_file = request.files.get("resume") or request.files.get("file")
     if not resume_file:
@@ -1221,6 +1312,7 @@ def get_internship(internship_id):
 
 
 @app.route("/api/internships/<int:internship_id>/save", methods=["POST"])
+@retry_on_db_error(max_retries=3)
 def save_internship_endpoint(internship_id):
     user, auth_error = require_authenticated_user()
     if auth_error:
@@ -1290,6 +1382,7 @@ def list_saved():
 
 @app.route("/api/internships/summarize-file", methods=["POST"])
 @limiter.limit(summarize_file_limit)
+@retry_on_db_error(max_retries=3)
 def summarize_internship_file():
     uploaded_file = request.files.get("file")
     if not uploaded_file:
@@ -1362,6 +1455,7 @@ def summarize_internship_file():
 
 @app.route("/api/internships/summarize", methods=["POST"])
 @limiter.limit(summarize_limit)
+@retry_on_db_error(max_retries=3)
 def summarize_internship():
     data = request.get_json(silent=True) or {}
     input_type = (data.get("input_type") or "").strip().lower()
@@ -1450,6 +1544,7 @@ def summarize_internship():
     })
 
 @app.route("/api/internships/submit", methods=["POST"])
+@retry_on_db_error(max_retries=3)
 def submit_internship():
     data = request.get_json(silent=True) or {}
     url = (data.get('url') or '').strip()

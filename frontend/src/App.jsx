@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { Auth } from "./pages/Auth";
 import { Dashboard } from "./pages/Dashboard";
+import { Landing } from "./pages/Landing";
 import { getAuthSession } from "./lib/auth";
 
 function App() {
@@ -35,16 +37,8 @@ function App() {
   }, [routeHash]);
 
   useEffect(() => {
-    if (window.location.hash.startsWith("#auth")) {
-      window.location.hash = "#dashboard";
-    }
-
     const onHashChange = () => {
       const nextHash = window.location.hash || "";
-      if (nextHash.startsWith("#auth")) {
-        window.location.hash = "#dashboard";
-        return;
-      }
       setRouteHash(nextHash);
     };
 
@@ -57,13 +51,19 @@ function App() {
       return;
     }
 
-    if (isAuthenticated && !routeHash) {
-      window.location.hash = "#dashboard";
+    if (isAuthenticated) {
+      if (
+        !routeHash ||
+        routeHash.startsWith("#auth") ||
+        routeHash.startsWith("#signup")
+      ) {
+        window.location.hash = "#dashboard";
+      }
       return;
     }
 
-    if (routeHash.startsWith("#auth")) {
-      window.location.hash = "#dashboard";
+    if (routeHash.startsWith("#dashboard")) {
+      window.location.hash = "#auth";
     }
   }, [authChecked, isAuthenticated, routeHash]);
 
@@ -78,10 +78,14 @@ function App() {
   }
 
   if (routeHash.startsWith("#dashboard")) {
-    return <Dashboard />;
+    return isAuthenticated ? <Dashboard /> : <Auth />;
   }
 
-  return <Dashboard />;
+  if (routeHash.startsWith("#auth") || routeHash.startsWith("#signup")) {
+    return <Auth />;
+  }
+
+  return isAuthenticated ? <Dashboard /> : <Landing />;
 }
 
 export default App;
