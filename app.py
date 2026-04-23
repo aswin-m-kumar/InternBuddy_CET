@@ -86,7 +86,13 @@ def retry_on_db_error(max_retries=3, backoff_factor=0.5):
         return wrapper
     return decorator
 
-running_on_vercel = bool(os.getenv("VERCEL") or os.getenv("VERCEL_ENV"))
+# Treat Vercel/Lambda runtimes as serverless so writable paths are used.
+running_on_vercel = bool(
+    os.getenv("VERCEL")
+    or os.getenv("VERCEL_ENV")
+    or os.getenv("VERCEL_URL")
+    or os.getenv("AWS_LAMBDA_FUNCTION_NAME")
+)
 app = Flask(__name__, instance_path="/tmp") if running_on_vercel else Flask(__name__)
 
 secret_key = (os.getenv("SECRET_KEY") or "").strip()
@@ -97,9 +103,16 @@ if not secret_key:
     secret_key = "dev-secret-key-change-in-prod"
 app.secret_key = secret_key
 
-database_url = os.getenv("DATABASE_URL", "sqlite:///internbuddy.db")
+default_database_url = "sqlite:////tmp/internbuddy.db" if running_on_vercel else "sqlite:///internbuddy.db"
+database_url = (os.getenv("DATABASE_URL") or default_database_url).strip()
 if database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
+
+# On serverless, avoid relative sqlite paths that trigger writes to read-only
+# instance folders like /var/task/instance.
+if running_on_vercel and database_url.startswith("sqlite:///") and not database_url.startswith("sqlite:////"):
+    sqlite_name = database_url.replace("sqlite:///", "", 1).lstrip("/") or "internbuddy.db"
+    database_url = f"sqlite:////tmp/{sqlite_name}"
 
 app.config["SQLALCHEMY_DATABASE_URI"] = database_url
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
