@@ -93,7 +93,7 @@ InternBuddy CET is a full-stack web application that helps students discover, an
 - **Framework**: React 19 with Vite 8 (lightning-fast HMR)
 - **Styling**: Tailwind CSS + custom accent tokens
 - **UI Effects**: Shader-based animated gradients (`@shadergradient/react`)
-- **Routing**: Hash-based routing (`#auth`, `#dashboard`, `#landing`)
+- **Routing**: Hash-based routing (`#dashboard`, `#landing`)
 - **State**: React hooks (minimal dependency footprint)
 - **Build**: Vite with chunk-size optimization warnings
 

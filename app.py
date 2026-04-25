@@ -1013,25 +1013,25 @@ def auth_google_callback():
     oauth_error = request.args.get("error")
     if oauth_error:
         logger.warning("Google OAuth callback error: %s", oauth_error)
-        return redirect(f"{frontend_base}/#auth?oauth_error={quote(oauth_error)}")
+        return redirect(f"{frontend_base}/#landing?oauth_error={quote(oauth_error)}")
 
     state = session.get("google_oauth_state")
     if not state:
-        return redirect(f"{frontend_base}/#auth?oauth_error=missing_state")
+        return redirect(f"{frontend_base}/#landing?oauth_error=missing_state")
 
     try:
         flow = build_google_flow(state=state)
     except Exception as exc:
         logger.error("Google OAuth callback flow init failed: %s", exc)
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#auth?oauth_error=flow_init_failed")
+        return redirect(f"{frontend_base}/#landing?oauth_error=flow_init_failed")
 
     try:
         flow.fetch_token(authorization_response=request.url)
     except Exception as exc:
         logger.error("Google OAuth token exchange failed: %s", exc)
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#auth?oauth_error=token_exchange_failed")
+        return redirect(f"{frontend_base}/#landing?oauth_error=token_exchange_failed")
 
     try:
         userinfo_response = http_requests.get(
@@ -1042,18 +1042,18 @@ def auth_google_callback():
     except Exception as exc:
         logger.error("Google OAuth userinfo request failed: %s", exc)
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#auth?oauth_error=userinfo_request_failed")
+        return redirect(f"{frontend_base}/#landing?oauth_error=userinfo_request_failed")
 
     if not userinfo_response.ok:
         logger.error("Google userinfo fetch failed: %s", userinfo_response.text)
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#auth?oauth_error=userinfo_failed")
+        return redirect(f"{frontend_base}/#landing?oauth_error=userinfo_failed")
 
     profile = userinfo_response.json()
     email = (profile.get("email") or "").strip().lower()
     if not email:
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#auth?oauth_error=missing_email")
+        return redirect(f"{frontend_base}/#landing?oauth_error=missing_email")
 
     name = (profile.get("name") or email.split("@")[0]).strip()
     avatar_url = (profile.get("picture") or "").strip() or None
@@ -1086,7 +1086,7 @@ def auth_google_callback():
         db.session.rollback()
         logger.error("Google OAuth callback failed: %s", exc)
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#auth?oauth_error=persist_user_failed")
+        return redirect(f"{frontend_base}/#landing?oauth_error=persist_user_failed")
 
 @app.route("/api/resume/upload", methods=["POST"])
 def upload_resume():

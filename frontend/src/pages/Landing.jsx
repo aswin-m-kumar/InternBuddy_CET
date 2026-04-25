@@ -86,6 +86,21 @@ const initialSignUpState = {
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const oauthErrorMessages = {
+  access_denied: "Google sign-in was cancelled or denied.",
+  missing_state: "Google sign-in session expired. Please try again.",
+  flow_init_failed: "Google sign-in setup failed on server.",
+  token_exchange_failed:
+    "Google sign-in token exchange failed. Check callback URL and client secret.",
+  userinfo_request_failed:
+    "Google sign-in failed while contacting Google profile service.",
+  userinfo_failed: "Google sign-in failed while reading your profile.",
+  missing_email: "Google account did not provide an email.",
+  persist_user_failed:
+    "Google sign-in succeeded but account save failed on server.",
+  callback_failed: "Google sign-in callback failed. Please try again.",
+};
+
 function SectionTitle({ eyebrow, title, description }) {
   return (
     <div className="space-y-3 text-center">
@@ -175,6 +190,25 @@ export function Landing() {
   const [signUpSuccess, setSignUpSuccess] = useState("");
   const [signInLoading, setSignInLoading] = useState(false);
   const [signUpLoading, setSignUpLoading] = useState(false);
+
+  useEffect(() => {
+    const hash = window.location.hash || "";
+    const queryStart = hash.indexOf("?");
+    if (queryStart === -1) {
+      return;
+    }
+
+    const params = new URLSearchParams(hash.slice(queryStart + 1));
+    const oauthError = params.get("oauth_error");
+    if (!oauthError) {
+      return;
+    }
+
+    setActiveModal("signin");
+    setSignInError(
+      oauthErrorMessages[oauthError] || "Google sign-in failed. Please try again.",
+    );
+  }, []);
 
   const closeModal = () => {
     if (signInLoading || signUpLoading) {
