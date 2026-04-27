@@ -285,7 +285,7 @@ npm run dev
    SUMMARIZATION_MODEL=meta/llama-3.1-8b-instruct
    ANALYSIS_MODEL=meta/llama-3.1-70b-instruct
    ADMIN_KEY=<strong-random-key>
-   FRONTEND_URL=https://aswin-m-kumar.github.io
+   FRONTEND_URL=https://aswin-m-kumar.github.io/InternBuddy_CET
    ```
 
 3. **Deploy**

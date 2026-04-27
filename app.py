@@ -363,7 +363,13 @@ def get_frontend_redirect_base():
     if parsed.netloc.endswith("github.io") and not path:
         path = "/InternBuddy_CET"
 
-    return f"{parsed.scheme}://{parsed.netloc}{path}"
+    base = f"{parsed.scheme}://{parsed.netloc}{path}"
+
+    # Ensure GitHub Pages URLs have the repository path
+    if parsed.netloc.endswith("github.io") and "/InternBuddy_CET" not in base:
+        base = f"{parsed.scheme}://{parsed.netloc}/InternBuddy_CET"
+
+    return base
 
 
 def build_google_flow(state=None):
