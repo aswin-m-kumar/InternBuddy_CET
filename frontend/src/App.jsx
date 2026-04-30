@@ -50,6 +50,15 @@ function App() {
       return;
     }
 
+    const searchParams = new URLSearchParams(window.location.search);
+    const cameFromOAuthSuccess = searchParams.get("auth") === "success";
+
+    if (cameFromOAuthSuccess && isAuthenticated) {
+      window.history.replaceState({}, "", window.location.pathname);
+      window.location.hash = "#dashboard";
+      return;
+    }
+
     if (isAuthenticated) {
       if (
         !routeHash ||

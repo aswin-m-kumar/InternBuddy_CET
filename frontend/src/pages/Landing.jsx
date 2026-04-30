@@ -206,7 +206,8 @@ export function Landing() {
 
     setActiveModal("signin");
     setSignInError(
-      oauthErrorMessages[oauthError] || "Google sign-in failed. Please try again.",
+      oauthErrorMessages[oauthError] ||
+        "Google sign-in failed. Please try again.",
     );
   }, []);
 

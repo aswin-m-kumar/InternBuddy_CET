@@ -1014,7 +1014,7 @@ def auth_google_start():
 
 @app.route("/api/auth/google/callback", methods=["GET"])
 def auth_google_callback():
-    frontend_base = get_frontend_redirect_base()
+    frontend_base = get_frontend_redirect_base().rstrip("/")
 
     oauth_error = request.args.get("error")
     if oauth_error:
@@ -1087,7 +1087,7 @@ def auth_google_callback():
         session["csrf_token"] = secrets.token_urlsafe(32)
         session["user_id"] = user.id
         session.pop("google_oauth_state", None)
-        return redirect(f"{frontend_base}/#dashboard")
+        return redirect(f"{frontend_base}?auth=success")
     except Exception as exc:
         db.session.rollback()
         logger.error("Google OAuth callback failed: %s", exc)
