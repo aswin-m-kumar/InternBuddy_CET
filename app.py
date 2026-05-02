@@ -1094,6 +1094,7 @@ def auth_google_callback():
         session.pop("google_oauth_state", None)
         return redirect(f"{frontend_base}/#landing?oauth_error=persist_user_failed")
 
+
 @app.route("/api/resume/upload", methods=["POST"])
 def upload_resume():
     if 'file' not in request.files:

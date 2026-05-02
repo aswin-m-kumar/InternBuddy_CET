@@ -239,6 +239,14 @@ export function Landing() {
     setSignUpSuccess("");
   };
 
+  const handleGoogleSignIn = () => {
+    startGoogleSignIn();
+  };
+
+  const handleGoogleSignUp = () => {
+    startGoogleSignIn();
+  };
+
   useEffect(() => {
     if (!activeModal) {
       return undefined;
@@ -337,14 +345,6 @@ export function Landing() {
     } finally {
       setSignUpLoading(false);
     }
-  };
-
-  const handleGoogleSignIn = () => {
-    startGoogleSignIn();
-  };
-
-  const handleGoogleSignUp = () => {
-    startGoogleSignIn();
   };
 
   const handleBackdropClick = (event) => {

@@ -100,7 +100,7 @@ InternBuddy CET is a full-stack web application that helps students discover, an
 ### Backend
 
 - **Framework**: Flask + SQLAlchemy ORM
-- **Authentication**: Flask-Login, Flask-Session, Google OAuth 2.0
+- **Authentication**: Session cookies, CSRF protection, Google OAuth 2.0
 - **Security**: CSRF protection, rate limiting, security headers
 - **AI**: NVIDIA NIM (OpenAI-compatible API)
 - **File Processing**: pdfplumber, PyPDF2, OCR.Space API, Pillow
@@ -351,6 +351,22 @@ npm run dev
 | `ADMIN_KEY`             | Header key for admin endpoints            | (required for `/api/admin/usage`)     |
 | `FRONTEND_URL`          | OAuth redirect and CORS origin            | `http://localhost:5173`               |
 
+#### Google OAuth
+
+| Variable               | Purpose                    | Example                                          |
+| ---------------------- | -------------------------- | ------------------------------------------------ |
+| `GOOGLE_CLIENT_ID`     | Google OAuth client ID     | `<google-web-client-id>`                         |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | `<google-client-secret>`                         |
+| `GOOGLE_REDIRECT_URI`  | Google callback URL        | `http://127.0.0.1:5000/api/auth/google/callback` |
+
+**Flow notes:**
+
+- Backend starts OAuth at `GET /api/auth/google/start`.
+- Google returns to `GET /api/auth/google/callback`.
+- On success, backend redirects to the frontend with `?auth=success`.
+- The frontend turns that signal into `#dashboard` after session confirmation.
+- Failure cases still land on `#landing?oauth_error=...`.
+
 #### Frontend (Build-time)
 
 | Variable       | Purpose                                   |
@@ -465,6 +481,14 @@ curl -X POST http://localhost:5000/api/auth/signout \
   "message": "Signed out"
 }
 ```
+
+#### `GET /api/auth/google/start`
+
+Begin Google OAuth sign-in and redirect the browser to Google.
+
+#### `GET /api/auth/google/callback`
+
+Handle the Google callback, create or update the user record, set the session, and redirect back to the frontend with `?auth=success` on success.
 
 ---
 
@@ -790,8 +814,7 @@ InternBuddy_CET/
 │       ├── index.css        # Global styles + CSS variables
 │       │
 │       ├── pages/
-│       │   ├── Landing.jsx  # Public landing page
-│       │   ├── Auth.jsx     # Login/signup page with OAuth
+│       │   ├── Landing.jsx  # Public landing page with auth modal
 │       │   └── Dashboard.jsx # Main app: summarizer + matcher
 │       │
 │       ├── components/
